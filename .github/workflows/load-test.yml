@@ -1,0 +1,30 @@
+name: API k6 Load Performance Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  k6-load-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Run k6 Load Test (Login Endpoint)
+      uses: grafana/k6-action@v0.3.1
+      with:
+        filename: testing/load-tests/login.js
+        flags: --out json=reports/k6_result.json
+
+    - name: Upload Performance Reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: k6-performance-report
+        path: |
+          reports/
+          summary.html

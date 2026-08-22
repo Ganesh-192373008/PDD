@@ -1,0 +1,53 @@
+name: Web Selenium E2E Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  selenium-web-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: 'npm'
+        cache-dependency-path: testing/selenium-e2e/package.json
+
+    - name: Install Local Dependencies
+      run: |
+        cd testing/selenium-e2e
+        npm install
+
+    - name: Start Local React Application
+      run: |
+        # Set up mock frontend project & dev server
+        cd frontend
+        npm install
+        npm run dev &
+        sleep 5 # wait for the server to spin up
+
+    - name: Run Chrome Headless Selenium Tests
+      env:
+        BASE_URL: http://localhost:5173
+        BROWSER: chrome
+        HEADLESS: 'true'
+      run: |
+        cd testing/selenium-e2e
+        npm test
+
+    - name: Upload Web Test Reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: selenium-test-reports
+        path: |
+          testing/selenium-e2e/reports/
+          testing/selenium-e2e/reports/failures/
