@@ -359,6 +359,7 @@ class AppState extends ChangeNotifier {
         'countdown': 'Resend OTP in',
         'verify': 'Verify OTP',
         'send': 'Send OTP',
+        'community': 'Community Forum',
       },
       'hi': {
         'dashboard': 'डैशबोर्ड',
@@ -380,6 +381,7 @@ class AppState extends ChangeNotifier {
         'countdown': 'ओटीपी पुनः भेजें',
         'verify': 'ओटीपी सत्यापित करें',
         'send': 'ओटीपी भेजें',
+        'community': 'सामुदायिक मंच',
       },
       'mr': {
         'dashboard': 'डॅशबोर्ड',
@@ -401,6 +403,7 @@ class AppState extends ChangeNotifier {
         'countdown': 'ओटीपी पुन्हा पाठवा',
         'verify': 'ओटीपी तपासा',
         'send': 'ओटीपी पाठवा',
+        'community': 'सामाजिक मंच',
       },
       'ta': {
         'dashboard': 'டாஷ்போர்டு',
@@ -408,7 +411,7 @@ class AppState extends ChangeNotifier {
         'scanCrop': 'பயிர் ஸ்கேன்',
         'schemes': 'திட்டங்கள்',
         'marketPrices': 'சந்தை விலை',
-        'water': 'நீர் பாசனம்',
+        'water': 'நீர்ப் பாசனம்',
         'fertilizer': 'உர அட்டவணை',
         'products': 'கடை',
         'cart': 'கூடை',
@@ -422,6 +425,7 @@ class AppState extends ChangeNotifier {
         'countdown': 'மீண்டும் அனுப்பவும்',
         'verify': 'OTP சரிபார்க்கவும்',
         'send': 'OTP அனுப்பவும்',
+        'community': 'சமூக மன்றம்',
       }
     };
     return dict[_language]?[key] ?? dict['en']?[key] ?? key;
@@ -1446,6 +1450,9 @@ class _DashboardTabState extends State<DashboardTab> {
                 }),
                 _buildActionCard(Icons.trending_up, 'Mandi Prices', Colors.orange, () {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketPricesScreen()));
+                }),
+                _buildActionCard(Icons.public, state.t('community'), Colors.green, () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CommunityScreen()));
                 }),
               ],
             ),
@@ -3896,6 +3903,461 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   },
                 )
               : const Center(child: Text('No notifications history.')),
+    );
+  // ==========================================
+// 💬 SUB-SCREEN: COMMUNITY FORUM
+// ==========================================
+class CommunityScreen extends StatefulWidget {
+  const CommunityScreen({super.key});
+
+  @override
+  State<CommunityScreen> createState() => _CommunityScreenState();
+}
+
+class _CommunityScreenState extends State<CommunityScreen> {
+  List<dynamic> _messages = [];
+  bool _loading = false;
+  String _activeTab = 'all'; // 'all', 'my', 'replies'
+  Timer? _timer;
+
+  final TextEditingController _postController = TextEditingController();
+  final Map<String, TextEditingController> _replyControllers = {};
+  final Map<String, bool> _expandedReplies = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchMessages();
+    _timer = Timer.periodic(const Duration(seconds: 8), (_) => _fetchMessages());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _postController.dispose();
+    for (var c in _replyControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _fetchMessages() async {
+    final state = Provider.of<AppState>(context, listen: false);
+    if (state.token.isEmpty) return;
+    if (_messages.isEmpty) {
+      setState(() => _loading = true);
+    }
+    try {
+      final res = await http.get(
+        Uri.parse('${state.apiUrl}/community'),
+        headers: {'Authorization': 'Bearer ${state.token}'},
+      );
+      if (res.statusCode == 200) {
+        if (mounted) {
+          setState(() {
+            _messages = jsonDecode(res.body);
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Community load error: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _createPost() async {
+    final state = Provider.of<AppState>(context, listen: false);
+    final content = _postController.text.trim();
+    if (content.isEmpty) return;
+
+    try {
+      final res = await http.post(
+        Uri.parse('${state.apiUrl}/community'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${state.token}',
+        },
+        body: jsonEncode({'content': content}),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        _postController.clear();
+        if (mounted) {
+          Navigator.pop(context); // Close dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Post published successfully!')),
+          );
+        }
+        _fetchMessages();
+      }
+    } catch (e) {
+      debugPrint('Create post error: $e');
+    }
+  }
+
+  Future<void> _likePost(String id) async {
+    final state = Provider.of<AppState>(context, listen: false);
+    try {
+      final res = await http.post(
+        Uri.parse('${state.apiUrl}/community/$id/like'),
+        headers: {'Authorization': 'Bearer ${state.token}'},
+      );
+      if (res.statusCode == 200) {
+        final updatedMsg = jsonDecode(res.body);
+        if (mounted) {
+          setState(() {
+            _messages = _messages.map((m) => m['_id'] == id ? updatedMsg : m).toList();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Like error: $e');
+    }
+  }
+
+  Future<void> _sharePost(String id) async {
+    final state = Provider.of<AppState>(context, listen: false);
+    try {
+      final res = await http.post(
+        Uri.parse('${state.apiUrl}/community/$id/share'),
+        headers: {'Authorization': 'Bearer ${state.token}'},
+      );
+      if (res.statusCode == 200) {
+        final updatedMsg = jsonDecode(res.body);
+        if (mounted) {
+          setState(() {
+            _messages = _messages.map((m) => m['_id'] == id ? updatedMsg : m).toList();
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Share link copied to clipboard!')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Share error: $e');
+    }
+  }
+
+  Future<void> _submitReply(String id) async {
+    final state = Provider.of<AppState>(context, listen: false);
+    final controller = _replyControllers[id];
+    final content = controller?.text.trim() ?? '';
+    if (content.isEmpty) return;
+
+    try {
+      final res = await http.post(
+        Uri.parse('${state.apiUrl}/community/$id/reply'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${state.token}',
+        },
+        body: jsonEncode({'content': content}),
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        controller?.clear();
+        final updatedMsg = jsonDecode(res.body);
+        if (mounted) {
+          setState(() {
+            _messages = _messages.map((m) => m['_id'] == id ? updatedMsg : m).toList();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Reply submit error: $e');
+    }
+  }
+
+  List<dynamic> _getFilteredMessages(Map<String, dynamic>? currentUser) {
+    final userId = currentUser?['_id'] ?? currentUser?['id'];
+    if (_activeTab == 'my') {
+      return _messages.filter((m) => m['userId'] == userId);
+    }
+    if (_activeTab == 'replies') {
+      return _messages.filter((m) => m['userId'] == userId && m['replies'] != null && (m['replies'] as List).isNotEmpty);
+    }
+    return _messages;
+  }
+
+  String _formatTimeAgo(String? dateStr) {
+    if (dateStr == null) return 'Recently';
+    try {
+      final date = DateTime.parse(dateStr);
+      final now = DateTime.now();
+      final diff = now.difference(date);
+      if (diff.inMinutes < 1) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      return '${diff.inDays}d ago';
+    } catch (_) {
+      return 'Recently';
+    }
+  }
+
+  void _showNewPostDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: AppColors.bgCardDark,
+          title: const Text('Create New Forum Post', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: _postController,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              hintText: 'Share farming queries or updates...',
+              hintStyle: TextStyle(color: AppColors.textSecondary),
+              border: OutlineInputBorder(),
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+            ),
+            ElevatedButton(
+              onPressed: _createPost,
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              child: const Text('Post', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = Provider.of<AppState>(context);
+    final user = state.user;
+    final filtered = _getFilteredMessages(user);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(state.t('community')),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_comment, color: AppColors.secondary),
+            onPressed: _showNewPostDialog,
+          )
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                  color: AppColors.bgCardDark,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildTabButton('all', 'All Posts'),
+                      _buildTabButton('my', 'My Posts 📝'),
+                      _buildTabButton('replies', 'Replies Box 💬'),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: filtered.isNotEmpty
+                      ? ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: filtered.length,
+                          itemBuilder: (ctx, idx) {
+                            final msg = filtered[idx];
+                            final id = msg['_id'] ?? '';
+                            final likesList = msg['likes'] as List? ?? [];
+                            final userId = user?['_id'] ?? user?['id'];
+                            final hasLiked = likesList.includes(userId);
+                            final repliesList = msg['replies'] as List? ?? [];
+                            final isExpanded = _expandedReplies[id] ?? false;
+
+                            if (!_replyControllers.containsKey(id)) {
+                              _replyControllers[id] = TextEditingController();
+                            }
+
+                            return Card(
+                              color: AppColors.bgCardDark,
+                              margin: const EdgeInsets.bottom(16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          backgroundColor: AppColors.primary.withOpacity(0.2),
+                                          child: Text(
+                                            (msg['userName'] ?? 'F').substring(0, 1).toUpperCase(),
+                                            style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                msg['userName'] ?? 'Anonymous Farmer',
+                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                              ),
+                                              Text(
+                                                '${msg['userLocation'] ?? 'Global Farmer'} · ${_formatTimeAgo(msg['createdAt'])}',
+                                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      msg['content'] ?? '',
+                                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    const Divider(color: AppColors.border, height: 1),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        TextButton.icon(
+                                          icon: Icon(
+                                            Icons.star,
+                                            size: 18,
+                                            color: hasLiked ? AppColors.secondary : AppColors.textSecondary,
+                                          ),
+                                          label: Text(
+                                            '${likesList.length}',
+                                            style: TextStyle(color: hasLiked ? AppColors.secondary : AppColors.textSecondary),
+                                          ),
+                                          onPressed: () => _likePost(id),
+                                        ),
+                                        TextButton.icon(
+                                          icon: Icon(
+                                            Icons.mode_comment,
+                                            size: 18,
+                                            color: isExpanded ? Colors.greenAccent : AppColors.textSecondary,
+                                          ),
+                                          label: Text(
+                                            '${repliesList.length}',
+                                            style: TextStyle(color: isExpanded ? Colors.greenAccent : AppColors.textSecondary),
+                                          ),
+                                          onPressed: () {
+                                            setState(() {
+                                              _expandedReplies[id] = !isExpanded;
+                                            });
+                                          },
+                                        ),
+                                        TextButton.icon(
+                                          icon: const Icon(Icons.share, size: 18, color: AppColors.textSecondary),
+                                          label: const Text('Share', style: TextStyle(color: AppColors.textSecondary)),
+                                          onPressed: () => _sharePost(id),
+                                        ),
+                                      ],
+                                    ),
+                                    if (isExpanded) ...[
+                                      const SizedBox(height: 12),
+                                      const Divider(color: AppColors.border, height: 1),
+                                      const SizedBox(height: 10),
+                                      if (repliesList.isNotEmpty)
+                                        ...repliesList.map((r) {
+                                          return Container(
+                                            margin: const EdgeInsets.only(bottom: 8),
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withOpacity(0.2),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    Text(
+                                                      r['userName'] ?? 'Farmer Reply',
+                                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.greenAccent),
+                                                    ),
+                                                    Text(
+                                                      _formatTimeAgo(r['createdAt']),
+                                                      style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(r['content'] ?? '', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                                              ],
+                                            ),
+                                          );
+                                        }).toList()
+                                      else
+                                        const Padding(
+                                          padding: EdgeInsets.symmetric(vertical: 8),
+                                          child: Text('No replies yet. Start the conversation!', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                                        ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: TextField(
+                                              controller: _replyControllers[id],
+                                              decoration: const InputDecoration(
+                                                hintText: 'Write a reply...',
+                                                hintStyle: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                                isDense: true,
+                                                border: OutlineInputBorder(),
+                                              ),
+                                              style: const TextStyle(fontSize: 13, color: Colors.white),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          IconButton(
+                                            icon: const Icon(Icons.send, color: AppColors.primary),
+                                            onPressed: () => _submitReply(id),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      : const Center(child: Text('No posts found. Start the forum!')),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildTabButton(String tab, String label) {
+    final bool isSelected = _activeTab == tab;
+    return GestureDetector(
+      onTap: () => setState(() => _activeTab = tab),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : AppColors.textSecondary,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontSize: 12,
+          ),
+        ),
+      ),
     );
   }
 }
