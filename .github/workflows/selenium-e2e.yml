@@ -26,21 +26,22 @@ jobs:
         cd testing/selenium-e2e
         npm install
 
-    - name: Start Local React Application
-      run: |
-        # Set up mock frontend project & dev server
-        cd frontend
-        npm install
-        npm run dev &
-        sleep 5 # wait for the server to spin up
-
-    - name: Run Chrome Headless Selenium Tests
+    - name: Start Local React Application and Run Tests
       env:
-        BASE_URL: http://localhost:5173
+        BASE_URL: http://127.0.0.1:5173
         BROWSER: chrome
         HEADLESS: 'true'
       run: |
-        cd testing/selenium-e2e
+        # Install frontend dependencies
+        cd frontend
+        npm install
+        
+        # Start dev server in the background
+        npm run dev -- --host 127.0.0.1 &
+        sleep 8 # wait for the server to spin up
+        
+        # Run selenium tests
+        cd ../testing/selenium-e2e
         npm test
 
     - name: Upload Web Test Reports

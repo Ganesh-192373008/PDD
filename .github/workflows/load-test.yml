@@ -39,21 +39,23 @@ jobs:
         MONGO_URI: mongodb://localhost:27017/agroassist
         JWT_SECRET: supersecret
 
-    - name: Start Backend Server
+    - name: Setup k6
+      uses: grafana/setup-k6-action@v1
+
+    - name: Start Backend Server and Run k6 Load Test (Login Endpoint)
       run: |
+        # Start backend API server in the background
         cd backend
         node server.js &
-        sleep 5
+        sleep 8 # wait for backend server to spin up
+        
+        # Run k6 load tests
+        cd ..
+        k6 run testing/load-tests/login.js --out json=reports/k6_result.json
       env:
         PORT: 5000
         MONGO_URI: mongodb://localhost:27017/agroassist
         JWT_SECRET: supersecret
-
-    - name: Setup k6
-      uses: grafana/setup-k6-action@v1
-
-    - name: Run k6 Load Test (Login Endpoint)
-      run: k6 run testing/load-tests/login.js --out json=reports/k6_result.json
 
     - name: Upload Performance Reports
       uses: actions/upload-artifact@v4
