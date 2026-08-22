@@ -30,6 +30,20 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        channel: 'stable'
+        cache: true
+
+    - name: Build Flutter APK
+      run: |
+        cd mobile
+        flutter pub get
+        flutter build apk --release
+        mkdir -p ../testing/appium-e2e/app
+        cp build/app/outputs/flutter-apk/app-release.apk ../testing/appium-e2e/app/app-release.apk
+
     - name: Install Appium & UiAutomator2 Driver
       run: |
         npm install -g appium
