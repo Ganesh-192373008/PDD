@@ -87,7 +87,7 @@ class AppState extends ChangeNotifier {
   int _unreadNotifications = 0;
   bool _loading = false;
 
-  final String apiUrl = 'http://10.0.2.2:5000/api'; // Android Emulator localhost bridge
+  final String apiUrl = 'http://10.226.183.1:5000/api'; // Local network server IP
 
   String get token => _token;
   Map<String, dynamic>? get user => _user;
