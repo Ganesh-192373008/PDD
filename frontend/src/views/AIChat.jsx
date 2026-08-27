@@ -96,6 +96,8 @@ export const AIChat = () => {
       localStorage.removeItem('agroassist_chat_history');
       setErrorInfo(null);
     }
+  };
+
   const parseInlineMarkdown = (text) => {
     if (!text) return '';
     const parts = text.split(/\*\*([\s\S]*?)\*\*/g);
