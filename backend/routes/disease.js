@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const { protect } = require('../middleware/auth');
+const ScanHistory = require('../models/ScanHistory');
 
 // Set up temporary storage for uploaded crop images
 const uploadDir = path.join(__dirname, '..', 'uploads');
@@ -174,15 +175,33 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
         }
 
         // Successful diagnosis
-        getGroqRecommendation(result.crop, result.disease).then((groqRec) => {
+        getGroqRecommendation(result.crop, result.disease).then(async (groqRec) => {
+          const recText = groqRec || result.recommendation;
+          const confVal = parseFloat((result.confidence * 100).toFixed(2));
+
+          try {
+            // Save to database
+            const newScan = new ScanHistory({
+              userId: req.user._id,
+              crop: result.crop,
+              disease: result.disease,
+              severity: result.severity,
+              confidence: confVal,
+              recommendation: recText
+            });
+            await newScan.save();
+          } catch (historyErr) {
+            console.error('Failed to save scan history:', historyErr);
+          }
+
           res.json({
             confidenceTooLow: false,
             classIndex: result.classIndex,
             crop: result.crop,
             disease: result.disease,
             severity: result.severity,
-            recommendation: groqRec || result.recommendation,
-            confidence: parseFloat((result.confidence * 100).toFixed(2))
+            recommendation: recText,
+            confidence: confVal
           });
         });
 

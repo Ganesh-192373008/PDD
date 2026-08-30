@@ -18,6 +18,7 @@ import { NotificationsView } from './views/NotificationsView';
 import { ProfileView } from './views/ProfileView';
 import { LandingPage } from './views/LandingPage';
 import { Community } from './views/Community';
+import { History } from './views/History';
 
 // Auth Guard component for protecting private routes
 const ProtectedLayout = ({ children }) => {
@@ -110,6 +111,11 @@ function AppContent() {
         <Route path="/profile" element={
           <ProtectedLayout>
             <ProfileView />
+          </ProtectedLayout>
+        } />
+        <Route path="/history" element={
+          <ProtectedLayout>
+            <History />
           </ProtectedLayout>
         } />
 

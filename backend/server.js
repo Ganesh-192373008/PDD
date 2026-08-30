@@ -30,6 +30,7 @@ app.use('/api/products', require('./routes/products'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/user', require('./routes/user'));
 app.use('/api/community', require('./routes/community'));
+app.use('/api/history', require('./routes/history'));
 
 // Server root status check
 app.get('/', (req, res) => {

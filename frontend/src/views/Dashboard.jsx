@@ -14,7 +14,8 @@ import {
   Droplet,
   Sprout,
   ChevronRight,
-  Bell
+  Bell,
+  History
 } from 'lucide-react';
 
 export const Dashboard = () => {
@@ -49,6 +50,7 @@ export const Dashboard = () => {
     { label: t('water'), desc: 'Water requirements planner', path: '/water-management', icon: Droplet, color: '#4db6ac' },
     { label: t('fertilizer'), desc: 'Nutrient application calendar', path: '/fertilizer-schedule', icon: Sprout, color: '#a1887f' },
     { label: t('schemes'), desc: 'Apply for agricultural subsidies', path: '/schemes', icon: FileSpreadsheet, color: '#ba68c8' },
+    { label: 'Activity History', desc: 'View all your crop scans and logs', path: '/history', icon: History, color: '#ff8a65' },
   ];
 
   return (
