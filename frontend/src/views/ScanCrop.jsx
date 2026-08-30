@@ -55,27 +55,86 @@ export const ScanCrop = () => {
     }
   };
 
+  const compressImage = (file, callback) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // Define max dimensions
+        const MAX_WIDTH = 600;
+        const MAX_HEIGHT = 600;
+        
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        canvas.toBlob((blob) => {
+          const compressedFile = new File([blob], file.name || 'compressed_image.jpg', {
+            type: 'image/jpeg',
+            lastModified: Date.now()
+          });
+          callback(compressedFile, URL.createObjectURL(blob));
+        }, 'image/jpeg', 0.6); // 0.6 quality compression
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
   const capturePhoto = () => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
 
-      // Match canvas dimensions to video aspect ratio
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      // Resize to a maximum of 600px width/height while keeping aspect ratio
+      let width = video.videoWidth;
+      let height = video.videoHeight;
+      const MAX_WIDTH = 600;
+      const MAX_HEIGHT = 600;
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
       
       // Draw frame to canvas
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Convert canvas frame to blob/file
+      // Convert canvas frame to blob/file with 0.6 quality compression
       canvas.toBlob((blob) => {
         const file = new File([blob], 'captured_leaf.jpg', { type: 'image/jpeg' });
         setImage(file);
         setPreview(URL.createObjectURL(blob));
         setUseCamera(false);
         stopCamera();
-      }, 'image/jpeg', 0.95);
+      }, 'image/jpeg', 0.6);
     }
   };
 
@@ -89,8 +148,10 @@ export const ScanCrop = () => {
         setError('Please select an image file (PNG, JPG, JPEG).');
         return;
       }
-      setImage(file);
-      setPreview(URL.createObjectURL(file));
+      compressImage(file, (compressedFile, previewUrl) => {
+        setImage(compressedFile);
+        setPreview(previewUrl);
+      });
       setUseCamera(false);
       stopCamera();
     }
