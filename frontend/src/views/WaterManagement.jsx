@@ -14,6 +14,7 @@ export const WaterManagement = () => {
   const [soilType, setSoilType] = useState('Loamy Soil');
   const [plantingDate, setPlantingDate] = useState('');
   const [irrigationMethod, setIrrigationMethod] = useState('Drip Irrigation');
+  const [wateringTime, setWateringTime] = useState('08:00');
 
   useEffect(() => {
     if (token) {
@@ -59,7 +60,8 @@ export const WaterManagement = () => {
           fieldSize: parseFloat(fieldSize),
           soilType,
           plantingDate,
-          irrigationMethod
+          irrigationMethod,
+          wateringTime
         })
       });
 
@@ -204,6 +206,19 @@ export const WaterManagement = () => {
               </div>
             </div>
 
+            <div className="grid-2 mt-2">
+              <div className="form-group">
+                <label className="input-label">Reminder Alarm Time:</label>
+                <input
+                  type="time"
+                  value={wateringTime}
+                  onChange={(e) => setWateringTime(e.target.value)}
+                  className="input-field"
+                  required
+                />
+              </div>
+            </div>
+
             <button type="submit" disabled={loading} className="btn btn-primary btn-block mt-3">
               {loading ? 'Calculating...' : 'Generate Irrigation Schedule'}
             </button>
@@ -258,7 +273,7 @@ export const WaterManagement = () => {
                         <span className="col-lbl">NEXT WATERING</span>
                         <span className="col-val">
                           {nextDate.toLocaleDateString()} at{' '}
-                          {nextDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {schedule.wateringTime || '08:00'}
                         </span>
                       </div>
 

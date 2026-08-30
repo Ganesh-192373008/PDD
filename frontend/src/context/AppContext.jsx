@@ -168,7 +168,7 @@ export const AppProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-  const API_URL = 'http://localhost:5000/api';
+  const API_URL = import.meta.env.VITE_API_URL || 'https://pdd-backend-s6yk.onrender.com/api';
 
   // Load user profile if token exists
   useEffect(() => {
@@ -194,6 +194,155 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     fetchWeather();
   }, [location.lat, location.lng, user?.location?.lat, user?.location?.lng, user?.location?.address]);
+
+  // Background Alarm / Notification Monitoring System
+  useEffect(() => {
+    if (!token) return;
+
+    // Track triggered alarms to prevent multiple notifications in the same minute
+    const triggeredAlarms = new Set();
+
+    const checkAlarms = async () => {
+      try {
+        const now = new Date();
+        const currentDateStr = now.toLocaleDateString();
+        const currentHours = String(now.getHours()).padStart(2, '0');
+        const currentMinutes = String(now.getMinutes()).padStart(2, '0');
+        const currentTimeStr = `${currentHours}:${currentMinutes}`;
+
+        // 1. Check Water Irrigation Schedules
+        const waterRes = await fetch(`${API_URL}/water`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (waterRes.ok) {
+          const waterSchedules = await waterRes.json();
+          for (const schedule of waterSchedules) {
+            if (!schedule.remindersEnabled || !schedule.nextWatering) continue;
+            
+            const nextWaterDate = new Date(schedule.nextWatering);
+            const isTodayOrPast = now >= nextWaterDate || currentDateStr === nextWaterDate.toLocaleDateString();
+            const schedTime = schedule.wateringTime || '08:00';
+            
+            const alarmKey = `water_${schedule._id}_${currentDateStr}_${schedTime}`;
+            
+            if (isTodayOrPast && currentTimeStr === schedTime && !triggeredAlarms.has(alarmKey)) {
+              triggeredAlarms.add(alarmKey);
+              
+              // Trigger persistent DB Notification
+              await fetch(`${API_URL}/notifications`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  title: '💧 Irrigation Reminder',
+                  message: `It is now time (${schedTime}) to irrigate your ${schedule.crop} crop (${schedule.irrigationMethod || 'Drip'}).`,
+                  category: 'Water Irrigation'
+                })
+              });
+              
+              // Play a sound
+              playAlarmSound();
+
+              // Update count
+              fetchUnreadNotificationsCount();
+
+              // Browser System Notification
+              if (Notification.permission === 'granted') {
+                new Notification('💧 Crop Irrigation Alarm', {
+                  body: `Time to water your ${schedule.crop}!`,
+                  icon: '/favicon.ico'
+                });
+              }
+            }
+          }
+        }
+
+        // 2. Check Fertilizer Schedules
+        const fertRes = await fetch(`${API_URL}/fertilizer`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (fertRes.ok) {
+          const fertSchedules = await fertRes.json();
+          for (const schedule of fertSchedules) {
+            if (!schedule.remindersEnabled || !schedule.nextApplication) continue;
+            
+            const nextFertDate = new Date(schedule.nextApplication);
+            const isTodayOrPast = now >= nextFertDate || currentDateStr === nextFertDate.toLocaleDateString();
+            const schedTime = schedule.applicationTime || '08:00';
+            
+            const alarmKey = `fert_${schedule._id}_${currentDateStr}_${schedTime}`;
+            
+            if (isTodayOrPast && currentTimeStr === schedTime && !triggeredAlarms.has(alarmKey)) {
+              triggeredAlarms.add(alarmKey);
+              
+              // Trigger persistent DB Notification
+              await fetch(`${API_URL}/notifications`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  title: '🌱 Fertilizer Reminder',
+                  message: `It is now time (${schedTime}) to apply ${schedule.fertilizerType} to your ${schedule.crop} (Growth Stage: ${schedule.growthStage}).`,
+                  category: 'Fertilizers'
+                })
+              });
+
+              // Play a sound
+              playAlarmSound();
+
+              // Update count
+              fetchUnreadNotificationsCount();
+
+              // Browser System Notification
+              if (Notification.permission === 'granted') {
+                new Notification('🌱 Fertilizer Application Alarm', {
+                  body: `Time to apply fertilizer to your ${schedule.crop}!`,
+                  icon: '/favicon.ico'
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error running alarm checks:', err);
+      }
+    };
+
+    const playAlarmSound = () => {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.value = 523.25; // C5 note
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 1.2); // Beep for 1.2 seconds
+      } catch (e) {
+        console.warn('AudioContext beep failed:', e);
+      }
+    };
+
+    // Request Notification permission
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+
+    // Run immediately, then check every 30 seconds
+    checkAlarms();
+    const interval = setInterval(checkAlarms, 30000);
+    return () => clearInterval(interval);
+  }, [token]);
 
   const detectLocation = () => {
     if (navigator.geolocation) {

@@ -14,6 +14,7 @@ export const FertilizerSchedule = () => {
   const [soilInfo, setSoilInfo] = useState('Loamy Soil');
   const [plantingDate, setPlantingDate] = useState('');
   const [fieldSize, setFieldSize] = useState('');
+  const [applicationTime, setApplicationTime] = useState('08:00');
 
   useEffect(() => {
     if (token) {
@@ -59,7 +60,8 @@ export const FertilizerSchedule = () => {
           growthStage,
           soilInfo,
           plantingDate,
-          fieldSize: parseFloat(fieldSize)
+          fieldSize: parseFloat(fieldSize),
+          applicationTime
         })
       });
 
@@ -204,6 +206,19 @@ export const FertilizerSchedule = () => {
               </div>
             </div>
 
+            <div className="grid-2 mt-2">
+              <div className="input-group">
+                <label className="input-label">Reminder Alarm Time:</label>
+                <input
+                  type="time"
+                  className="input-field"
+                  value={applicationTime}
+                  onChange={(e) => setApplicationTime(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
             <button type="submit" disabled={loading} className="btn btn-primary btn-block mt-3">
               {loading ? 'Analyzing...' : 'Generate Fertilizer Schedule'}
             </button>
@@ -265,7 +280,8 @@ export const FertilizerSchedule = () => {
                       <div className="metric-col">
                         <span className="col-lbl">NEXT APPLICATION DATE</span>
                         <span className="col-val">
-                          {nextDate.toLocaleDateString()}
+                          {nextDate.toLocaleDateString()} at{' '}
+                          {schedule.applicationTime || '08:00'}
                         </span>
                       </div>
                     </div>
