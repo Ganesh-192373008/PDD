@@ -742,6 +742,41 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  // OTP Verification request
+  Future<void> _handleVerifyOtp() async {
+    if (_otpController.text.length != 6) {
+      setState(() => _error = 'Please enter 6-digit code.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = '';
+    });
+    try {
+      final state = Provider.of<AppState>(context, listen: false);
+      final res = await http.post(
+        Uri.parse('${state.apiUrl}/auth/otp/verify'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'countryCode': '+91',
+          'phone': _phoneController.text,
+          'otp': _otpController.text,
+        }),
+      );
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 200) {
+        await state.setToken(data['token']);
+        if (mounted) Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainShellScreen()));
+      } else {
+        setState(() => _error = data['message'] ?? 'Invalid OTP code.');
+      }
+    } catch (e) {
+      setState(() => _error = 'OTP verification error.');
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
   // Google Authentication Handler for Mobile
   Future<void> _handleGoogleLogin() async {
     final googleEmailController = TextEditingController();
