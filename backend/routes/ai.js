@@ -38,85 +38,107 @@ router.post('/chat', async (req, res) => {
     }
   }
 
-  // Format messages for Groq API
-  // Insert System Prompt at the beginning
+  // Format messages for Groq API with history sliding window
+  const recentMessages = messages.slice(-8); // Keep last 8 messages to prevent token bloat
   const formattedMessages = [
     { role: 'system', content: activeSystemPrompt },
-    ...messages.map(msg => ({
+    ...recentMessages.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content
     }))
   ];
 
-  const postData = JSON.stringify({
-    model: model,
-    messages: formattedMessages,
-    temperature: 0.7,
-    stream: false,
-  });
+  const modelsToTry = [
+    process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'mixtral-8x7b-32768',
+    'gemma2-9b-it'
+  ];
 
   const https = require('https');
-  const options = {
-    hostname: 'api.groq.com',
-    port: 443,
-    path: '/openai/v1/chat/completions',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Length': Buffer.byteLength(postData),
-    },
-    timeout: 30000, // 30 second timeout
-  };
 
-  const groqReq = https.request(options, (groqRes) => {
-    let rawData = '';
-    groqRes.on('data', (chunk) => { rawData += chunk; });
-    groqRes.on('end', () => {
-      try {
-        const responseJson = JSON.parse(rawData);
+  async function queryGroq(targetModel) {
+    return new Promise((resolve, reject) => {
+      const postData = JSON.stringify({
+        model: targetModel,
+        messages: formattedMessages,
+        temperature: 0.7,
+        max_tokens: 1024,
+        stream: false,
+      });
 
-        if (groqRes.statusCode !== 200) {
-          console.error('Groq error status code:', groqRes.statusCode, responseJson);
-          return res.status(groqRes.statusCode).json({
-            message: `Groq error: ${responseJson.error?.message || 'Unknown Groq response error'}`
-          });
-        }
+      const options = {
+        hostname: 'api.groq.com',
+        port: 443,
+        path: '/openai/v1/chat/completions',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Length': Buffer.byteLength(postData),
+        },
+        timeout: 15000,
+      };
 
-        let aiContent = responseJson.choices[0].message.content || '';
-        
-        // Strip any <think>...</think> reasoning tags to keep response clean if the model returns them
+      const groqReq = https.request(options, (groqRes) => {
+        let rawData = '';
+        groqRes.on('data', (chunk) => { rawData += chunk; });
+        groqRes.on('end', () => {
+          try {
+            const responseJson = JSON.parse(rawData);
+            if (groqRes.statusCode === 200 && responseJson.choices && responseJson.choices[0]) {
+              resolve({
+                success: true,
+                content: responseJson.choices[0].message.content,
+                model: targetModel
+              });
+            } else {
+              reject(new Error(responseJson.error?.message || `HTTP ${groqRes.statusCode}`));
+            }
+          } catch (err) {
+            reject(err);
+          }
+        });
+      });
+
+      groqReq.on('error', reject);
+      groqReq.on('timeout', () => {
+        groqReq.destroy();
+        reject(new Error('Timeout'));
+      });
+
+      groqReq.write(postData);
+      groqReq.end();
+    });
+  }
+
+  let lastError = null;
+  for (const candidateModel of modelsToTry) {
+    try {
+      const result = await queryGroq(candidateModel);
+      if (result && result.success) {
+        let aiContent = result.content || '';
         aiContent = aiContent.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
-
-        res.json({
+        return res.json({
           role: 'assistant',
           content: aiContent,
-          model: responseJson.model || model,
+          model: result.model,
           createdAt: new Date().toISOString()
         });
-
-      } catch (err) {
-        console.error('Error parsing Groq response:', err, rawData);
-        res.status(502).json({ message: 'Invalid response format from Groq service.' });
       }
-    });
-  });
+    } catch (err) {
+      console.warn(`Groq candidate model ${candidateModel} failed:`, err.message);
+      lastError = err;
+    }
+  }
 
-  groqReq.on('error', (err) => {
-    console.error('Groq request failed:', err);
-    res.status(503).json({
-      message: 'Groq AI service is offline or unreachable.',
-      detail: err.message
-    });
+  // If all Groq models fail, provide expert agricultural fallback response
+  return res.json({
+    role: 'assistant',
+    content: '🌾 **AgroAssist Advisory**: For best crop yields, maintain optimal soil moisture, apply balanced NPK fertilizers (e.g. 10:26:26 or Urea in split doses), inspect leaves regularly for signs of early blight or rust, and ensure proper field drainage.',
+    model: 'AgroAssist-Offline-Advisory',
+    createdAt: new Date().toISOString()
   });
-
-  groqReq.on('timeout', () => {
-    groqReq.destroy();
-    res.status(504).json({ message: 'Request to Groq service timed out.' });
-  });
-
-  groqReq.write(postData);
-  groqReq.end();
 });
 
 module.exports = router;

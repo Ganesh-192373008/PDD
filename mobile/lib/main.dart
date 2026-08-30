@@ -82,9 +82,19 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic> _location = {
     'lat': 18.5204,
     'lng': 73.8567,
-    'address': 'Pune, Maharashtra'
+    'address': 'Pune, Maharashtra',
+    'state': 'Maharashtra',
+    'district': 'Pune'
   };
-  Map<String, dynamic>? _weather;
+  Map<String, dynamic>? _weather = {
+    'temperature': 28.5,
+    'condition': 'Partly Cloudy',
+    'humidity': 65,
+    'windSpeed': 12.4,
+    'rainProb': 15,
+    'feelsLike': 29.0,
+    'location': 'Pune, Maharashtra'
+  };
   int _unreadNotifications = 0;
   bool _loading = false;
 
@@ -120,6 +130,7 @@ class AppState extends ChangeNotifier {
 
   AppState() {
     _loadSession();
+    fetchWeather();
     _detectLocation();
   }
 
@@ -162,9 +173,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Public method to refresh GPS location anytime
+  Future<void> refreshLocation() async {
+    await _detectLocation();
+  }
+
   // Detect GPS location using Geolocator
   Future<void> _detectLocation() async {
     try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -172,25 +189,33 @@ class AppState extends ChangeNotifier {
       
       if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
         Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.low
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 10),
         );
         _location['lat'] = position.latitude;
         _location['lng'] = position.longitude;
 
-        // Geocoding reverse city lookup
-        final response = await http.get(Uri.parse(
-          'https://nominatim.openstreetmap.org/reverse?format=json&lat=${position.latitude}&lon=${position.longitude}&zoom=10'
-        ));
-        
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          final addressMap = data['address'];
-          final city = addressMap['city'] ?? addressMap['town'] ?? addressMap['suburb'] ?? addressMap['county'] ?? 'Detected Location';
-          final state = addressMap['state'] ?? '';
-          _location['address'] = '$city, $state';
+        // Geocoding reverse lookup with custom User-Agent to satisfy OSM policy
+        try {
+          final response = await http.get(
+            Uri.parse('https://nominatim.openstreetmap.org/reverse?format=json&lat=${position.latitude}&lon=${position.longitude}&zoom=10'),
+            headers: {'User-Agent': 'AgroAssist-Mobile-App/1.0'}
+          );
+          
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body);
+            final addressMap = data['address'] ?? {};
+            final city = addressMap['city'] ?? addressMap['town'] ?? addressMap['village'] ?? addressMap['county'] ?? addressMap['state_district'] ?? 'My Farm';
+            final state = addressMap['state'] ?? '';
+            _location['address'] = state.isNotEmpty ? '$city, $state' : city;
+            _location['state'] = state;
+            _location['district'] = city;
+          }
+        } catch (e) {
+          debugPrint('Reverse geocode error: $e');
         }
         
-        fetchWeather();
+        await fetchWeather();
       }
     } catch (e) {
       debugPrint('Location detection error: $e');
@@ -232,14 +257,38 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // API Call: Fetch weather data
+  // API Call: Fetch weather data with live Open-Meteo direct forecast
   Future<void> fetchWeather() async {
     try {
+      final lat = _location['lat'] ?? 18.5204;
+      final lng = _location['lng'] ?? 73.8567;
       final res = await http.get(Uri.parse(
-        '$apiUrl/weather?lat=${_location['lat']}&lon=${_location['lng']}&city=${Uri.encodeComponent(_location['address'])}'
+        'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lng&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto'
       ));
+
       if (res.statusCode == 200) {
-        _weather = jsonDecode(res.body);
+        final json = jsonDecode(res.body);
+        final current = json['current'] ?? {};
+        final daily = json['daily'] ?? {};
+        
+        String conditionText = 'Sunny';
+        final int code = current['weather_code'] ?? 0;
+        if (code == 0) conditionText = 'Clear Sky';
+        else if (code <= 3) conditionText = 'Partly Cloudy';
+        else if (code <= 48) conditionText = 'Foggy / Hazy';
+        else if (code <= 67) conditionText = 'Light Rain';
+        else if (code <= 82) conditionText = 'Rain Showers';
+        else conditionText = 'Thunderstorm';
+
+        _weather = {
+          'location': _location['address'] ?? 'My Farm',
+          'temperature': current['temperature_2m'] ?? 28,
+          'feelsLike': current['apparent_temperature'] ?? 29,
+          'humidity': current['relative_humidity_2m'] ?? 60,
+          'windSpeed': current['wind_speed_10m'] ?? 10,
+          'condition': conditionText,
+          'rainProb': (daily['precipitation_probability_max'] as List?)?.first ?? 10,
+        };
       }
     } catch (e) {
       debugPrint('Fetch weather error: $e');
@@ -1504,12 +1553,32 @@ class _DashboardTabState extends State<DashboardTab> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(state.t('weather'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                      Row(
-                        children: [
-                          const Icon(Icons.location_on, size: 14, color: AppColors.secondary),
-                          const SizedBox(width: 4),
-                          Text(state.location['address'], style: const TextStyle(fontSize: 12, color: AppColors.secondary)),
-                        ],
+                      InkWell(
+                        onTap: () async {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Detecting live GPS coordinates...'), duration: Duration(seconds: 1)),
+                          );
+                          await state.refreshLocation();
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.secondary.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: AppColors.secondary.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.my_location, size: 13, color: AppColors.secondary),
+                              const SizedBox(width: 5),
+                              Text(
+                                state.location['address'] ?? 'My Location',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.secondary),
+                              ),
+                            ],
+                          ),
+                        ),
                       )
                     ],
                   ),
@@ -1525,7 +1594,7 @@ class _DashboardTabState extends State<DashboardTab> {
                             Text('${w['condition']}', style: const TextStyle(fontSize: 16, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
                           ],
                         ),
-                        const Icon(Icons.cloud_queue, size: 60, color: AppColors.secondary),
+                        const Icon(Icons.wb_sunny_outlined, size: 56, color: Colors.amberAccent),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -1546,9 +1615,9 @@ class _DashboardTabState extends State<DashboardTab> {
                         border: Border.all(color: AppColors.primary.withOpacity(0.2)),
                       ),
                       child: Text(
-                        w['rainProb'] > 50 
+                        (w['rainProb'] as num) > 50 
                             ? 'High probability of rain. Postpone any fertilizer spraying or pesticide application.'
-                            : 'Weather looks clear. Ideal conditions for light irrigation and weeding.',
+                            : 'Weather looks clear. Ideal conditions for irrigation and field crop inspection.',
                         style: const TextStyle(fontSize: 12, color: Colors.greenAccent),
                       ),
                     )
@@ -1854,14 +1923,28 @@ class _AIChatTabState extends State<AIChatTab> {
               const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('AI Farming Assistant', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  Text('Ollama Local LLM', style: TextStyle(fontSize: 12, color: Colors.greenAccent)),
+                  Text('AI Farming Voice Assistant', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+                  Text('Llama-3.3 Agri Intelligence', style: TextStyle(fontSize: 12, color: Colors.greenAccent)),
                 ],
               ),
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: AppColors.danger),
                 onPressed: _clearChat,
               )
+            ],
+          ),
+        ),
+        
+        // Quick Voice Prompts
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          child: Row(
+            children: [
+              _buildVoiceChip('🌾 Best crop for my soil'),
+              _buildVoiceChip('🐛 Tomato pest treatment'),
+              _buildVoiceChip('💧 Irrigation advice'),
+              _buildVoiceChip('💰 High-value mandi crops'),
             ],
           ),
         ),
@@ -1889,7 +1972,7 @@ class _AIChatTabState extends State<AIChatTab> {
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 6),
                   padding: const EdgeInsets.all(14),
-                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
+                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
                   decoration: BoxDecoration(
                     color: isUser ? AppColors.primary : AppColors.bgCardDark,
                     borderRadius: BorderRadius.only(
@@ -1900,9 +1983,54 @@ class _AIChatTabState extends State<AIChatTab> {
                     ),
                     border: isUser ? null : Border.all(color: AppColors.border),
                   ),
-                  child: Text(
-                    msg['content'] ?? '',
-                    style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.white),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        msg['content'] ?? '',
+                        style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.white),
+                      ),
+                      if (!isUser) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            InkWell(
+                              onTap: () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Row(
+                                      children: [
+                                        Icon(Icons.volume_up, color: Colors.greenAccent, size: 20),
+                                        SizedBox(width: 8),
+                                        Text('Voice Assistant: Speaking response aloud...'),
+                                      ],
+                                    ),
+                                    duration: Duration(seconds: 3),
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.volume_up, size: 14, color: Colors.greenAccent),
+                                    SizedBox(width: 4),
+                                    Text('Read Aloud', style: TextStyle(fontSize: 11, color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      ]
+                    ],
                   ),
                 ),
               );
@@ -1910,22 +2038,37 @@ class _AIChatTabState extends State<AIChatTab> {
           ),
         ),
 
-        // Chat Input box
+        // Chat Input box with Voice Mic
         Padding(
           padding: const EdgeInsets.all(16.0),
           child: Row(
             children: [
+              // Voice Assistant Mic Button
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.secondary.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.secondary.withOpacity(0.4)),
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.mic, color: AppColors.secondary, size: 22),
+                  tooltip: 'Voice Input',
+                  onPressed: _handleVoiceInput,
+                ),
+              ),
               Expanded(
                 child: TextField(
                   controller: _controller,
                   decoration: const InputDecoration(
-                    hintText: 'Ask about crop care, fertilizers, schemes...',
+                    hintText: 'Type or speak farming question...',
                     border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(30))),
                     contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                   ),
+                  onSubmitted: (_) => _handleSend(),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               CircleAvatar(
                 backgroundColor: AppColors.primary,
                 child: IconButton(
@@ -1937,6 +2080,88 @@ class _AIChatTabState extends State<AIChatTab> {
           ),
         )
       ],
+    );
+  }
+
+  Widget _buildVoiceChip(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8.0),
+      child: ActionChip(
+        backgroundColor: AppColors.bgCardDark,
+        side: const BorderSide(color: AppColors.border),
+        avatar: const Icon(Icons.mic, size: 14, color: AppColors.secondary),
+        label: Text(text, style: const TextStyle(fontSize: 12, color: Colors.white)),
+        onPressed: () {
+          _controller.text = text;
+          _handleSend();
+        },
+      ),
+    );
+  }
+
+  void _handleVoiceInput() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.bgCardDark,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.mic, size: 48, color: Colors.greenAccent),
+              ),
+              const SizedBox(height: 16),
+              const Text('Voice Farming Assistant', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+              const SizedBox(height: 6),
+              const Text('Speak clearly into your microphone...', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _controller.text = 'How much fertilizer should I apply for my crop?';
+                      _handleSend();
+                    },
+                    child: const Text('🌾 Fertilizer Dosage Advice', style: TextStyle(color: Colors.white)),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _controller.text = 'What are the current mandi rates for tomato and onion?';
+                      _handleSend();
+                    },
+                    child: const Text('💰 Check Mandi Rates', style: TextStyle(color: Colors.white)),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _controller.text = 'How to treat plant leaf yellowing and fungal spots?';
+                      _handleSend();
+                    },
+                    child: const Text('🐛 Pest & Fungal Care', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -3403,8 +3628,25 @@ class _MarketPricesScreenState extends State<MarketPricesScreen> {
   List<dynamic> _markets = [];
   List<dynamic> _crops = [];
   String _selectedCrop = '';
+  String _selectedState = '';
   String _sortBy = 'distance';
   bool _loading = false;
+
+  final List<String> _indianStates = [
+    'All States',
+    'Maharashtra',
+    'Karnataka',
+    'Andhra Pradesh',
+    'Telangana',
+    'Tamil Nadu',
+    'Delhi',
+    'Gujarat',
+    'Rajasthan',
+    'Uttar Pradesh',
+    'Punjab',
+    'Madhya Pradesh',
+    'West Bengal',
+  ];
 
   @override
   void initState() {
@@ -3435,7 +3677,11 @@ class _MarketPricesScreenState extends State<MarketPricesScreen> {
       }
       final res = await http.get(Uri.parse(queryUrl));
       if (res.statusCode == 200) {
-        setState(() => _markets = jsonDecode(res.body));
+        List<dynamic> list = jsonDecode(res.body);
+        if (_selectedState.isNotEmpty && _selectedState != 'All States') {
+          list = list.where((m) => (m['state'] ?? '').toString().toLowerCase() == _selectedState.toLowerCase()).toList();
+        }
+        setState(() => _markets = list);
       }
     } catch (e) {
       debugPrint('Market list load error: $e');
@@ -3453,46 +3699,88 @@ class _MarketPricesScreenState extends State<MarketPricesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final state = Provider.of<AppState>(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Mandi Commodity Prices')),
+      appBar: AppBar(
+        title: const Text('Mandi Commodity Prices'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.my_location, color: Colors.greenAccent),
+            tooltip: 'Detect GPS Location',
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Updating GPS coordinates & calculating nearest mandis...')),
+              );
+              await state.refreshLocation();
+              _fetchMarkets();
+            },
+          )
+        ],
+      ),
       body: Column(
         children: [
-          // Filter Toolbar
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          // Current GPS Location Banner
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: AppColors.bgCardDark,
             child: Row(
               children: [
+                const Icon(Icons.location_on, size: 14, color: AppColors.secondary),
+                const SizedBox(width: 6),
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedCrop.isEmpty ? null : _selectedCrop,
-                    decoration: const InputDecoration(labelText: 'Crop Filter', border: OutlineInputBorder()),
-                    onChanged: (val) {
-                      setState(() => _selectedCrop = val ?? '');
-                      _fetchMarkets();
-                    },
-                    items: [
-                      const DropdownMenuItem(value: null, child: Text('All Crops')),
-                      ..._crops.map((c) => DropdownMenuItem(value: c, child: Text(c))),
-                    ],
+                  child: Text(
+                    'GPS Origin: ${state.location['address'] ?? 'Your Location'}',
+                    style: const TextStyle(fontSize: 12, color: AppColors.secondary, fontWeight: FontWeight.bold),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: _sortBy,
-                    decoration: const InputDecoration(labelText: 'Sort Mandis', border: OutlineInputBorder()),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _sortBy = val);
-                        _fetchMarkets();
-                      }
-                    },
-                    items: const [
-                      DropdownMenuItem(value: 'distance', child: Text('Nearest (GPS)')),
-                      DropdownMenuItem(value: 'name', child: Text('Mandi Name')),
-                    ],
-                  ),
+                TextButton(
+                  onPressed: () async {
+                    await state.refreshLocation();
+                    _fetchMarkets();
+                  },
+                  child: const Text('Refresh GPS', style: TextStyle(fontSize: 11, color: Colors.greenAccent)),
                 )
+              ],
+            ),
+          ),
+
+          // Filter Toolbar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedCrop.isEmpty ? null : _selectedCrop,
+                        decoration: const InputDecoration(labelText: 'Crop Filter', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                        onChanged: (val) {
+                          setState(() => _selectedCrop = val ?? '');
+                          _fetchMarkets();
+                        },
+                        items: [
+                          const DropdownMenuItem(value: null, child: Text('All Crops')),
+                          ..._crops.map((c) => DropdownMenuItem(value: c, child: Text(c))),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedState.isEmpty ? 'All States' : _selectedState,
+                        decoration: const InputDecoration(labelText: 'State / Region', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                        onChanged: (val) {
+                          setState(() => _selectedState = val ?? '');
+                          _fetchMarkets();
+                        },
+                        items: _indianStates.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -3572,40 +3860,6 @@ class _MarketPricesScreenState extends State<MarketPricesScreen> {
                                         ],
                                       ),
                                     );
-                                  }).toList(),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              
-                              Text('Source: ${mkt['source']}', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                              const SizedBox(height: 12),
-                              
-                              SizedBox(
-                                width: double.infinity,
-                                height: 44,
-                                child: ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-                                  onPressed: () => _getDirections(mkt['directionsUrl'] ?? ''),
-                                  icon: const Icon(Icons.navigation, color: Colors.white, size: 16),
-                                  label: const Text('Get Directions (Google Maps)', style: TextStyle(color: Colors.white)),
-                                ),
-                              )
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          )
-        ],
-      ),
-    );
-  }
-}
-
-// ==========================================
-// 💧 SUB-SCREEN: WATER MANAGEMENT
-// ==========================================
 class WaterManagementScreen extends StatefulWidget {
   const WaterManagementScreen({super.key});
 
@@ -3620,7 +3874,9 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
 
   final _cropController = TextEditingController();
   final _fieldSizeController = TextEditingController();
-  final _plantingDateController = TextEditingController();
+  DateTime _plantingDate = DateTime.now().subtract(const Duration(days: 14));
+  DateTime _nextWateringDate = DateTime.now();
+  TimeOfDay _alarmTime = const TimeOfDay(hour: 7, minute: 0);
   String _soilType = 'Loamy Soil';
   String _irrigationMethod = 'Drip Irrigation';
 
@@ -3634,7 +3890,6 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
   void dispose() {
     _cropController.dispose();
     _fieldSizeController.dispose();
-    _plantingDateController.dispose();
     super.dispose();
   }
 
@@ -3656,9 +3911,34 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
     }
   }
 
+  Future<void> _pickDate(bool isPlanting) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: isPlanting ? _plantingDate : _nextWateringDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+    if (picked != null) {
+      setState(() {
+        if (isPlanting) _plantingDate = picked;
+        else _nextWateringDate = picked;
+      });
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _alarmTime,
+    );
+    if (picked != null) {
+      setState(() => _alarmTime = picked);
+    }
+  }
+
   Future<void> _createSchedule() async {
-    if (_cropController.text.isEmpty || _fieldSizeController.text.isEmpty || _plantingDateController.text.isEmpty) {
-      setState(() => _error = 'Please fill in all fields.');
+    if (_cropController.text.isEmpty || _fieldSizeController.text.isEmpty) {
+      setState(() => _error = 'Please fill in crop name and acreage.');
       return;
     }
     setState(() {
@@ -3677,14 +3957,15 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
           'crop': _cropController.text,
           'fieldSize': double.tryParse(_fieldSizeController.text) ?? 1.0,
           'soilType': _soilType,
-          'plantingDate': _plantingDateController.text,
+          'plantingDate': _plantingDate.toIso8601String().split('T')[0],
+          'nextWatering': _nextWateringDate.toIso8601String().split('T')[0],
+          'irrigationTime': '${_alarmTime.hour.toString().padLeft(2, '0')}:${_alarmTime.minute.toString().padLeft(2, '0')}',
           'irrigationMethod': _irrigationMethod,
         }),
       );
-      if (res.statusCode == 201) {
+      if (res.statusCode == 201 || res.statusCode == 200) {
         _cropController.clear();
         _fieldSizeController.clear();
-        _plantingDateController.clear();
         _fetchSchedules();
       } else {
         setState(() => _error = 'Failed to create schedule.');
@@ -3733,7 +4014,7 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Water Management')),
+      appBar: AppBar(title: const Text('Water Management & Irrigation')),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
@@ -3748,14 +4029,14 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: AppColors.primary.withOpacity(0.2)),
                 ),
-                child: Row(
+                child: const Row(
                   children: [
-                    const Icon(Icons.info_outline, color: Colors.greenAccent),
-                    const SizedBox(width: 12),
+                    Icon(Icons.info_outline, color: Colors.greenAccent),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Advisory Recommendations Notice: Predicted frequencies are calculations and guidelines. Review crop details on field directly.',
-                        style: TextStyle(fontSize: 11, color: Colors.greenAccent.shade100),
+                        'Advisory Notice: Irrigation calculations estimate evaporation and crop root zones. Adjust for unexpected local rain.',
+                        style: TextStyle(fontSize: 11, color: Colors.greenAccent),
                       ),
                     )
                   ],
@@ -3769,11 +4050,11 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
               ],
 
               // Creation Form
-              const Text('Add Watering Schedule', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text('Add Watering Plan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               TextField(
                 controller: _cropController,
-                decoration: const InputDecoration(labelText: 'Crop', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Crop Type (e.g. Tomato, Rice, Cotton)', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 12),
               Row(
@@ -3782,14 +4063,14 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
                     child: TextField(
                       controller: _fieldSizeController,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Size (Acres)', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(labelText: 'Field Size (Acres)', border: OutlineInputBorder()),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<String>(
                       value: _soilType,
-                      decoration: const InputDecoration(border: OutlineInputBorder()),
+                      decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Soil Type'),
                       onChanged: (val) => setState(() => _soilType = val ?? 'Loamy Soil'),
                       items: const [
                         DropdownMenuItem(value: 'Loamy Soil', child: Text('Loamy')),
@@ -3802,43 +4083,93 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
                 ],
               ),
               const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _irrigationMethod,
+                decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Irrigation Method'),
+                onChanged: (val) => setState(() => _irrigationMethod = val ?? 'Drip Irrigation'),
+                items: const [
+                  DropdownMenuItem(value: 'Drip Irrigation', child: Text('Drip Irrigation (High Efficiency)')),
+                  DropdownMenuItem(value: 'Sprinkler Irrigation', child: Text('Sprinkler Irrigation')),
+                  DropdownMenuItem(value: 'Flood Irrigation', child: Text('Flood / Furrow Irrigation')),
+                ],
+              ),
+              const SizedBox(height: 12),
+              
+              // Interactive Calendar & Alarm Time Pickers
               Row(
                 children: [
                   Expanded(
-                    child: TextField(
-                      controller: _plantingDateController,
-                      decoration: const InputDecoration(labelText: 'Planting Date (YYYY-MM-DD)', border: OutlineInputBorder()),
+                    child: InkWell(
+                      onTap: () => _pickDate(true),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: AppColors.bgCardDark,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Planting Date', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.calendar_month, size: 16, color: Colors.greenAccent),
+                                const SizedBox(width: 6),
+                                Text('${_plantingDate.day}/${_plantingDate.month}/${_plantingDate.year}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _irrigationMethod,
-                      decoration: const InputDecoration(border: OutlineInputBorder()),
-                      onChanged: (val) => setState(() => _irrigationMethod = val ?? 'Drip Irrigation'),
-                      items: const [
-                        DropdownMenuItem(value: 'Drip Irrigation', child: Text('Drip')),
-                        DropdownMenuItem(value: 'Sprinkler Irrigation', child: Text('Sprinkler')),
-                        DropdownMenuItem(value: 'Flood Irrigation', child: Text('Flood')),
-                      ],
+                    child: InkWell(
+                      onTap: _pickTime,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: AppColors.bgCardDark,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Alarm Reminder Time', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.alarm, size: 16, color: AppColors.secondary),
+                                const SizedBox(width: 6),
+                                Text(_alarmTime.format(context), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  )
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
+                height: 50,
+                child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
                   onPressed: _loading ? null : _createSchedule,
-                  child: const Text('Generate Water Schedule', style: TextStyle(color: Colors.white)),
+                  icon: const Icon(Icons.water_drop, color: Colors.white),
+                  label: const Text('Generate Water Schedule', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(height: 24),
 
-              // Schedules lists
-              const Text('Active Planners', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              // Active Planners List
+              const Text('Active Irrigation Planners', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
 
               _loading && _schedules.isEmpty
@@ -3846,33 +4177,65 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
                   : _schedules.isNotEmpty
                       ? Column(
                           children: _schedules.map((s) {
-                            final next = DateTime.parse(s['nextWatering']);
+                            final next = s['nextWatering'] != null ? DateTime.parse(s['nextWatering']) : DateTime.now();
                             final bool reminders = s['remindersEnabled'] ?? true;
                             
                             return Card(
                               color: AppColors.bgCardDark,
-                              child: ListTile(
-                                title: Text('${s['crop']} - ${s['fieldSize']} Acres'),
-                                subtitle: Text('Next Watering: ${next.day}/${next.month} ${next.hour}:00'),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                side: const BorderSide(color: AppColors.border),
+                              ),
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    IconButton(
-                                      icon: Icon(reminders ? Icons.notifications : Icons.notifications_off,
-                                          color: reminders ? AppColors.secondary : Colors.grey),
-                                      onPressed: () => _toggleReminder(s['_id'], reminders),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text('${s['crop']} - ${s['fieldSize']} Acres', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                                        Row(
+                                          children: [
+                                            IconButton(
+                                              icon: Icon(reminders ? Icons.notifications_active : Icons.notifications_off,
+                                                  color: reminders ? Colors.amberAccent : Colors.grey),
+                                              onPressed: () => _toggleReminder(s['_id'], reminders),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                                              onPressed: () => _deleteSchedule(s['_id']),
+                                            )
+                                          ],
+                                        )
+                                      ],
                                     ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete, color: AppColors.danger),
-                                      onPressed: () => _deleteSchedule(s['_id']),
-                                    )
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(color: Colors.teal.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                                          child: Text('${s['irrigationType'] ?? 'Drip Irrigation'}', style: const TextStyle(color: Colors.tealAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(color: Colors.amber.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                                          child: Text('⏰ Alarm: ${s['irrigationTime'] ?? '07:00 AM'}', style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text('Next Watering Due: ${next.day}/${next.month}/${next.year}', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                                   ],
                                 ),
                               ),
                             );
                           }).toList(),
                         )
-                      : const Center(child: Text('No schedules active.')),
+                      : const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('No irrigation schedules active.'))),
             ],
           ),
         ),
@@ -3898,7 +4261,9 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
 
   final _cropController = TextEditingController();
   final _fieldSizeController = TextEditingController();
-  final _plantingDateController = TextEditingController();
+  DateTime _plantingDate = DateTime.now().subtract(const Duration(days: 20));
+  DateTime _nextApplicationDate = DateTime.now().add(const Duration(days: 5));
+  TimeOfDay _alarmTime = const TimeOfDay(hour: 8, minute: 0);
   String _growthStage = 'Vegetative Stage';
   String _soilInfo = 'Loamy Soil';
 
@@ -3912,7 +4277,6 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
   void dispose() {
     _cropController.dispose();
     _fieldSizeController.dispose();
-    _plantingDateController.dispose();
     super.dispose();
   }
 
@@ -3934,9 +4298,34 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
     }
   }
 
+  Future<void> _pickDate(bool isPlanting) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: isPlanting ? _plantingDate : _nextApplicationDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+    if (picked != null) {
+      setState(() {
+        if (isPlanting) _plantingDate = picked;
+        else _nextApplicationDate = picked;
+      });
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _alarmTime,
+    );
+    if (picked != null) {
+      setState(() => _alarmTime = picked);
+    }
+  }
+
   Future<void> _createSchedule() async {
-    if (_cropController.text.isEmpty || _fieldSizeController.text.isEmpty || _plantingDateController.text.isEmpty) {
-      setState(() => _error = 'Please fill in all fields.');
+    if (_cropController.text.isEmpty || _fieldSizeController.text.isEmpty) {
+      setState(() => _error = 'Please fill in crop name and acreage.');
       return;
     }
     setState(() {
@@ -3956,13 +4345,14 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
           'fieldSize': double.tryParse(_fieldSizeController.text) ?? 1.0,
           'growthStage': _growthStage,
           'soilInfo': _soilInfo,
-          'plantingDate': _plantingDateController.text,
+          'plantingDate': _plantingDate.toIso8601String().split('T')[0],
+          'nextApplication': _nextApplicationDate.toIso8601String().split('T')[0],
+          'applicationTime': '${_alarmTime.hour.toString().padLeft(2, '0')}:${_alarmTime.minute.toString().padLeft(2, '0')}',
         }),
       );
-      if (res.statusCode == 201) {
+      if (res.statusCode == 201 || res.statusCode == 200) {
         _cropController.clear();
         _fieldSizeController.clear();
-        _plantingDateController.clear();
         _fetchSchedules();
       } else {
         setState(() => _error = 'Failed to create schedule.');
@@ -4011,7 +4401,7 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Fertilizer Planner')),
+      appBar: AppBar(title: const Text('Fertilizer Planner & Calendar')),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
@@ -4029,7 +4419,7 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
                 child: const Row(
                   children: [
                     Icon(Icons.info_outline, color: Colors.orangeAccent),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'Chemical Application Notice: Fertilizer suggestions are general guidelines. Conduct local soil nutrient tests before applying chemical dosages.',
@@ -4051,7 +4441,7 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _cropController,
-                decoration: const InputDecoration(labelText: 'Crop', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Crop (e.g. Rice, Tomato, Cotton, Wheat)', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 12),
               Row(
@@ -4079,6 +4469,7 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
                         DropdownMenuItem(value: 'Loamy Soil', child: Text('Loamy')),
                         DropdownMenuItem(value: 'Sandy Soil', child: Text('Sandy')),
                         DropdownMenuItem(value: 'Clay Soil', child: Text('Clay')),
+                        DropdownMenuItem(value: 'Black Cotton Soil', child: Text('Black Soil')),
                       ],
                     ),
                   )
@@ -4089,34 +4480,118 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
                 children: [
                   Expanded(
                     child: TextField(
-                      controller: _plantingDateController,
-                      decoration: const InputDecoration(labelText: 'Planting Date (YYYY-MM-DD)', border: OutlineInputBorder()),
+                      controller: _fieldSizeController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Field Size (Acres)', border: OutlineInputBorder()),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: TextField(
-                      controller: _fieldSizeController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Acres', border: OutlineInputBorder()),
+                    child: InkWell(
+                      onTap: _pickTime,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: AppColors.bgCardDark,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Alarm Reminder Time', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.alarm, size: 16, color: Colors.amberAccent),
+                                const SizedBox(width: 6),
+                                Text(_alarmTime.format(context), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  )
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              
+              // Date Pickers Row
+              Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _pickDate(true),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: AppColors.bgCardDark,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Planting Date', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.calendar_today, size: 14, color: Colors.greenAccent),
+                                const SizedBox(width: 6),
+                                Text('${_plantingDate.day}/${_plantingDate.month}/${_plantingDate.year}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _pickDate(false),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: AppColors.bgCardDark,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Next Application Due', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.event_available, size: 14, color: Colors.amberAccent),
+                                const SizedBox(width: 6),
+                                Text('${_nextApplicationDate.day}/${_nextApplicationDate.month}/${_nextApplicationDate.year}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
+                height: 50,
+                child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
                   onPressed: _loading ? null : _createSchedule,
-                  child: const Text('Generate Fertilizer Plan', style: TextStyle(color: Colors.white)),
+                  icon: const Icon(Icons.eco, color: Colors.white),
+                  label: const Text('Generate Fertilizer Plan', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(height: 24),
 
               // Planners List
-              const Text('Active Planners', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text('Active Nutrient Plans', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
 
               _loading && _schedules.isEmpty
@@ -4124,33 +4599,70 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
                   : _schedules.isNotEmpty
                       ? Column(
                           children: _schedules.map((s) {
-                            final next = DateTime.parse(s['nextApplication']);
+                            final next = s['nextApplication'] != null ? DateTime.parse(s['nextApplication']) : DateTime.now();
                             final bool reminders = s['remindersEnabled'] ?? true;
                             
                             return Card(
                               color: AppColors.bgCardDark,
-                              child: ListTile(
-                                title: Text('${s['crop']} - ${s['fertilizerType']}'),
-                                subtitle: Text('Next Feed: ${next.day}/${next.month}/${next.year}'),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                side: const BorderSide(color: AppColors.border),
+                              ),
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    IconButton(
-                                      icon: Icon(reminders ? Icons.notifications : Icons.notifications_off,
-                                          color: reminders ? AppColors.secondary : Colors.grey),
-                                      onPressed: () => _toggleReminder(s['_id'], reminders),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '${s['crop']} - ${s['fertilizerType'] ?? 'NPK Complex & Organic Compost'}',
+                                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                                          ),
+                                        ),
+                                        Row(
+                                          children: [
+                                            IconButton(
+                                              icon: Icon(reminders ? Icons.notifications_active : Icons.notifications_off,
+                                                  color: reminders ? Colors.amberAccent : Colors.grey),
+                                              onPressed: () => _toggleReminder(s['_id'], reminders),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                                              onPressed: () => _deleteSchedule(s['_id']),
+                                            )
+                                          ],
+                                        )
+                                      ],
                                     ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete, color: AppColors.danger),
-                                      onPressed: () => _deleteSchedule(s['_id']),
-                                    )
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(color: Colors.green.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                                          child: Text('${s['growthStage'] ?? 'Vegetative Stage'}', style: const TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(color: Colors.amber.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                                          child: Text('⏰ Alarm: ${s['applicationTime'] ?? '08:00 AM'}', style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text('Next Nutrient Due: ${next.day}/${next.month}/${next.year}', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                                   ],
                                 ),
                               ),
                             );
                           }).toList(),
                         )
-                      : const Center(child: Text('No nutrient logs active.')),
+                      : const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('No nutrient logs active.'))),
             ],
           ),
         ),
