@@ -74,6 +74,24 @@ router.get('/', protect, async (req, res) => {
   }
 });
 
+// @route   GET api/history/scans/:id
+// @desc    Get a specific scan from history
+router.get('/scans/:id', protect, async (req, res) => {
+  try {
+    const scan = await ScanHistory.findById(req.params.id);
+    if (!scan) {
+      return res.status(404).json({ message: 'Scan record not found.' });
+    }
+    if (scan.userId.toString() !== req.user._id.toString()) {
+      return res.status(401).json({ message: 'Not authorized to view this record.' });
+    }
+    res.json(scan);
+  } catch (error) {
+    console.error('Error fetching scan details:', error);
+    res.status(500).json({ message: 'Server error retrieving scan details.' });
+  }
+});
+
 // @route   DELETE api/history/scans/:id
 // @desc    Delete a specific scan from history
 router.delete('/scans/:id', protect, async (req, res) => {
