@@ -389,7 +389,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Clear Cart
+  // Clear entire cart
   Future<void> clearCart() async {
     try {
       final res = await http.delete(
@@ -3310,16 +3310,82 @@ class _CartScreenState extends State<CartScreen> {
     try {
       final res = await http.post(
         Uri.parse('${state.apiUrl}/products/checkout'),
-        headers: {'Authorization': 'Bearer ${state.token}'}
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${state.token}',
+        }
       );
       final data = jsonDecode(res.body);
-      if (data['paymentConfigRequired'] == true) {
-        setState(() => _warning = data['message']);
+      if (res.statusCode == 200 || res.statusCode == 201 || data['success'] == true) {
+        await state.clearCart();
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: AppColors.bgCardDark,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppColors.border),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.check_circle, color: Colors.greenAccent, size: 48),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Order Placed Successfully!',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text('Payment Mode: Cash on Delivery (COD)', style: TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Your farming supplies order has been confirmed and dispatched for delivery to your farm.',
+                    style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Continue Shopping', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          );
+        }
+      } else {
+        setState(() => _warning = data['message'] ?? 'Checkout failed.');
       }
     } catch (e) {
-      setState(() => _warning = 'Checkout initialized failed.');
+      setState(() => _warning = 'Checkout request failed. Please check your connection.');
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -3329,7 +3395,32 @@ class _CartScreenState extends State<CartScreen> {
     final items = state.cart['items'] ?? [];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Shopping Cart')),
+      appBar: AppBar(
+        title: const Text('Shopping Cart'),
+        actions: [
+          if (items.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete_sweep_outlined, color: AppColors.danger),
+              tooltip: 'Clear Cart',
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Clear Cart?'),
+                    content: const Text('Do you want to remove all items from your cart?'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Clear', style: TextStyle(color: AppColors.danger))),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  await state.clearCart();
+                }
+              },
+            )
+        ],
+      ),
       body: Column(
         children: [
           if (_warning.isNotEmpty) ...[
@@ -3343,17 +3434,10 @@ class _CartScreenState extends State<CartScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.shield, color: AppColors.secondary, size: 36),
+                  const Icon(Icons.info_outline, color: AppColors.secondary, size: 28),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Setup Required', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.secondary)),
-                        const SizedBox(height: 4),
-                        Text(_warning, style: const TextStyle(fontSize: 12)),
-                      ],
-                    ),
+                    child: Text(_warning, style: const TextStyle(fontSize: 13, color: Colors.white)),
                   )
                 ],
               ),
@@ -3371,33 +3455,74 @@ class _CartScreenState extends State<CartScreen> {
 
                       return Card(
                         color: AppColors.bgCardDark,
-                        child: ListTile(
-                          title: Text(prod['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('Qty: ${item['quantity']} • ₹${prod['price']} each'),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: const BorderSide(color: AppColors.border),
+                        ),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14.0),
+                          child: Row(
                             children: [
-                              IconButton(
-                                icon: const Icon(Icons.remove, size: 18),
-                                onPressed: item['quantity'] > 1 
-                                    ? () => state.updateCartQty(prod['_id'], item['quantity'] - 1)
-                                    : null,
+                              Container(
+                                width: 50,
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: AppColors.border),
+                                ),
+                                child: const Icon(Icons.shopping_bag_outlined, color: Colors.greenAccent, size: 26),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.add, size: 18),
-                                onPressed: () => state.updateCartQty(prod['_id'], item['quantity'] + 1),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(prod['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white)),
+                                    const SizedBox(height: 4),
+                                    Text('Qty: ${item['quantity']} • ₹${prod['price']} each', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                                  ],
+                                ),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: AppColors.danger),
-                                onPressed: () => state.removeFromCart(prod['_id']),
-                              )
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.remove_circle_outline, size: 20, color: Colors.white70),
+                                    onPressed: item['quantity'] > 1 
+                                        ? () => state.updateCartQty(prod['_id'], item['quantity'] - 1)
+                                        : null,
+                                  ),
+                                  Text('${item['quantity']}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white)),
+                                  IconButton(
+                                    icon: const Icon(Icons.add_circle_outline, size: 20, color: Colors.greenAccent),
+                                    onPressed: () => state.updateCartQty(prod['_id'], item['quantity'] + 1),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: AppColors.danger, size: 20),
+                                    onPressed: () => state.removeFromCart(prod['_id']),
+                                  )
+                                ],
+                              ),
                             ],
                           ),
                         ),
                       );
                     },
                   )
-                : const Center(child: Text('Your cart is empty.')),
+                : const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.shopping_bag_outlined, size: 64, color: AppColors.textSecondary),
+                        SizedBox(height: 16),
+                        Text('Your cart is empty', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                        SizedBox(height: 6),
+                        Text('Add products from the marketplace to get started.', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                      ],
+                    ),
+                  ),
           ),
           if (items.isNotEmpty)
             Container(
@@ -3405,13 +3530,14 @@ class _CartScreenState extends State<CartScreen> {
               decoration: const BoxDecoration(
                 color: AppColors.bgCardDark,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border(top: BorderSide(color: AppColors.border)),
               ),
               child: Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Total Amount:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      const Text('Total Amount:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                       Text(
                         '₹${_calculateSubtotal(state.cart).toStringAsFixed(2)}',
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.secondary),
@@ -3422,12 +3548,13 @@ class _CartScreenState extends State<CartScreen> {
                   SizedBox(
                     width: double.infinity,
                     height: 50,
-                    child: ElevatedButton(
+                    child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
                       onPressed: _loading ? null : _handleCheckout,
-                      child: _loading 
+                      icon: _loading ? const SizedBox.shrink() : const Icon(Icons.shopping_cart_checkout, color: Colors.white),
+                      label: _loading 
                           ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text('Checkout', style: TextStyle(fontSize: 16, color: Colors.white)),
+                          : const Text('Place Order (Cash on Delivery)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                     ),
                   )
                 ],
