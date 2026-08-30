@@ -1,0 +1,4 @@
+- `[x]` Add 'community' translations in AppState dictionary.
+- `[x]` Add 'Community Forum' quick action card in DashboardTab grid.
+- `[x]` Implement CommunityScreen widget and state handlers at the bottom of main.dart.
+- `[x]` Compile/verify mobile code (conforms strictly to standard Dart/Flutter APIs).

@@ -1,19 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { Star, MessageCircle, Share2, MapPin, Send, Plus, X, AlertCircle, Users } from 'lucide-react';
+import { 
+  Star, MessageCircle, Share2, MapPin, Send, Plus, X, 
+  AlertCircle, Users, Search, Filter, Edit, Trash2, Image, 
+  Award, MessageSquare, BookOpen, AlertTriangle, CheckCircle2 
+} from 'lucide-react';
 
 export const Community = () => {
   const { token, API_URL, t, user } = useApp();
   const [messages, setMessages] = useState([]);
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'my', 'replies'
   const [showPostModal, setShowPostModal] = useState(false);
+  const [editingPost, setEditingPost] = useState(null); // post object being edited
   const [postContent, setPostContent] = useState('');
+  const [postCategory, setPostCategory] = useState('Crop Advice');
+  const [postImage, setPostImage] = useState(''); // base64 string
   const [replyContent, setReplyContent] = useState({}); // { [messageId]: content }
   const [expandedReplies, setExpandedReplies] = useState({}); // { [messageId]: boolean }
   const [submittingPost, setSubmittingPost] = useState(false);
   const [submittingReply, setSubmittingReply] = useState({}); // { [messageId]: boolean }
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('All');
+
+  const categories = [
+    'Crop Advice',
+    'Pest & Disease',
+    'Irrigation',
+    'Market Prices',
+    'Government Schemes',
+    'Farming Techniques',
+    'Organic Farming'
+  ];
 
   useEffect(() => {
     fetchMessages();
@@ -33,48 +53,144 @@ export const Community = () => {
         setError('');
       } else {
         if (res.status === 404) {
-          setError('Community API endpoint not found. Please restart your backend server process in your terminal window to register the new community routes.');
+          setError('Community API endpoint not found. Please restart your backend server.');
         } else {
           setError('Failed to fetch community messages.');
         }
       }
     } catch (e) {
       console.error('Error fetching community messages:', e);
-      setError('Connection to community server failed. Please ensure your backend node server.js is running and restarted.');
+      setError('Connection to community server failed.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleCreatePost = async (e) => {
+  const compressImageToBase64 = (file, callback) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = document.createElement('img');
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const MAX_WIDTH = 500;
+        const MAX_HEIGHT = 500;
+        
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5); // 0.5 quality JPEG
+        callback(compressedBase64);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        showToast('Please select a valid image file.', 'error');
+        return;
+      }
+      compressImageToBase64(file, (base64) => {
+        setPostImage(base64);
+      });
+    }
+  };
+
+  const handleCreateOrUpdatePost = async (e) => {
     e.preventDefault();
     if (!postContent.trim() || submittingPost) return;
 
     try {
       setSubmittingPost(true);
       setError('');
-      const res = await fetch(`${API_URL}/community`, {
-        method: 'POST',
+      
+      const payload = {
+        content: postContent,
+        category: postCategory,
+        imageUrl: postImage
+      };
+
+      const url = editingPost 
+        ? `${API_URL}/community/${editingPost._id}`
+        : `${API_URL}/community`;
+
+      const method = editingPost ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ content: postContent })
+        body: JSON.stringify(payload)
       });
 
       if (res.ok) {
-        const newMsg = await res.json();
-        setMessages((prev) => [newMsg, ...prev]);
-        setPostContent('');
-        setShowPostModal(false);
-        setSuccess('Post published successfully!');
-        setTimeout(() => setSuccess(''), 3000);
+        const resultPost = await res.json();
+        if (editingPost) {
+          setMessages((prev) => prev.map(msg => msg._id === editingPost._id ? resultPost : msg));
+          showToast('Post updated successfully!', 'success');
+        } else {
+          setMessages((prev) => [resultPost, ...prev]);
+          showToast('Post published successfully!', 'success');
+        }
+        closePostModal();
       } else {
         const data = await res.json();
-        setError(data.message || 'Failed to publish post.');
+        showToast(data.message || 'Failed to submit post.', 'error');
       }
     } catch (err) {
-      setError('Connection to server failed.');
+      showToast('Connection to server failed.', 'error');
     } finally {
       setSubmittingPost(false);
+    }
+  };
+
+  const handleEditClick = (post) => {
+    setEditingPost(post);
+    setPostContent(post.content);
+    setPostCategory(post.category || 'Crop Advice');
+    setPostImage(post.imageUrl || '');
+    setShowPostModal(true);
+  };
+
+  const handleDeletePost = async (postId) => {
+    if (!window.confirm('Are you sure you want to delete this post?')) return;
+
+    try {
+      const res = await fetch(`${API_URL}/community/${postId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        setMessages((prev) => prev.filter(msg => msg._id !== postId));
+        showToast('Post deleted successfully!', 'success');
+      } else {
+        const data = await res.json();
+        showToast(data.message || 'Failed to delete post.', 'error');
+      }
+    } catch (err) {
+      showToast('Connection to server failed.', 'error');
     }
   };
 
@@ -89,6 +205,12 @@ export const Community = () => {
         setMessages((prev) =>
           prev.map((msg) => (msg._id === messageId ? updatedMsg : msg))
         );
+        
+        // Notify liked
+        const hasLiked = updatedMsg.likes?.includes(user?._id) || updatedMsg.likes?.includes(user?.id);
+        if (hasLiked) {
+          showToast('Liked post! ❤️', 'success');
+        }
       }
     } catch (err) {
       console.error('Error liking message:', err);
@@ -108,9 +230,19 @@ export const Community = () => {
         );
         
         const shareLink = `${window.location.origin}/community#post-${messageId}`;
-        navigator.clipboard.writeText(shareLink);
-        setSuccess('Share link copied to clipboard!');
-        setTimeout(() => setSuccess(''), 3000);
+        
+        if (navigator.share) {
+          navigator.share({
+            title: 'AgroAssist Farmer Post',
+            text: updatedMsg.content,
+            url: shareLink
+          }).then(() => {
+            showToast('Post shared successfully!', 'success');
+          }).catch(console.error);
+        } else {
+          navigator.clipboard.writeText(shareLink);
+          showToast('Share link copied to clipboard! 📋', 'success');
+        }
       }
     } catch (err) {
       console.error('Error sharing message:', err);
@@ -139,6 +271,7 @@ export const Community = () => {
           prev.map((msg) => (msg._id === messageId ? updatedMsg : msg))
         );
         setReplyContent((prev) => ({ ...prev, [messageId]: '' }));
+        showToast('Reply posted successfully!', 'success');
       }
     } catch (err) {
       console.error('Error submitting reply:', err);
@@ -155,14 +288,50 @@ export const Community = () => {
     setReplyContent((prev) => ({ ...prev, [messageId]: val }));
   };
 
+  const showToast = (message, type = 'success') => {
+    if (type === 'success') {
+      setSuccess(message);
+      setTimeout(() => setSuccess(''), 3000);
+    } else {
+      setError(message);
+      setTimeout(() => setError(''), 3000);
+    }
+  };
+
+  const closePostModal = () => {
+    setShowPostModal(false);
+    setEditingPost(null);
+    setPostContent('');
+    setPostCategory('Crop Advice');
+    setPostImage('');
+  };
+
+  // Filter and Search logic
   const getFilteredMessages = () => {
+    let list = messages;
+
+    // Filter by Tab
     if (activeTab === 'my') {
-      return messages.filter((msg) => msg.userId === user?._id || msg.userId === user?.id);
+      list = list.filter((msg) => msg.userId === user?._id || msg.userId === user?.id);
     }
-    if (activeTab === 'replies') {
-      return messages.filter((msg) => (msg.userId === user?._id || msg.userId === user?.id) && msg.replies && msg.replies.length > 0);
+
+    // Filter by Category Chip
+    if (selectedCategoryFilter !== 'All') {
+      list = list.filter((msg) => msg.category === selectedCategoryFilter);
     }
-    return messages;
+
+    // Filter by Search Query (Name, Location, Content, Category)
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase();
+      list = list.filter((msg) => 
+        (msg.userName && msg.userName.toLowerCase().includes(q)) ||
+        (msg.userLocation && msg.userLocation.toLowerCase().includes(q)) ||
+        (msg.content && msg.content.toLowerCase().includes(q)) ||
+        (msg.category && msg.category.toLowerCase().includes(q))
+      );
+    }
+
+    return list;
   };
 
   const formatTimeAgo = (dateStr) => {
@@ -181,19 +350,62 @@ export const Community = () => {
     return `${diffDays}d ago`;
   };
 
+  const handleReplyClick = (postId) => {
+    setActiveTab('all');
+    setSelectedCategoryFilter('All');
+    setExpandedReplies((prev) => ({ ...prev, [postId]: true }));
+    setTimeout(() => {
+      const element = document.getElementById(`post-${postId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.classList.add('highlighted-post');
+        setTimeout(() => element.classList.remove('highlighted-post'), 2500);
+      }
+    }, 200);
+  };
+
+  // Compile Replies Box Data
+  const getReceivedReplies = () => {
+    const received = [];
+    messages.forEach((msg) => {
+      const isMyPost = msg.userId === user?._id || msg.userId === user?.id;
+      if (isMyPost && msg.replies && msg.replies.length > 0) {
+        msg.replies.forEach((reply) => {
+          // Ignore replies made by the user themselves in their own replies box
+          if (reply.userId !== user?._id && reply.userId !== user?.id) {
+            received.push({
+              replyId: reply._id,
+              postId: msg._id,
+              postTitle: msg.content,
+              replyAuthor: reply.userName,
+              replyContent: reply.content,
+              createdAt: reply.createdAt
+            });
+          }
+        });
+      }
+    });
+    return received.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  };
+
   const filteredMessages = getFilteredMessages();
+  const myPosts = messages.filter((msg) => msg.userId === user?._id || msg.userId === user?.id);
+  const totalLikesCount = myPosts.reduce((acc, curr) => acc + (curr.likes?.length || 0), 0);
+  const totalRepliesCount = myPosts.reduce((acc, curr) => acc + (curr.replies?.length || 0), 0);
+  const receivedReplies = getReceivedReplies();
 
   return (
     <div className="community-page-wrapper slide-in">
       {success && (
         <div className="alert alert-success floating-alert">
+          <CheckCircle2 size={16} />
           {success}
         </div>
       )}
 
       {error && (
         <div className="alert alert-error floating-alert">
-          <AlertCircle size={20} />
+          <AlertCircle size={16} />
           {error}
         </div>
       )}
@@ -212,7 +424,7 @@ export const Community = () => {
 
         <div className="header-meta-row mt-3">
           <span className="badge badge-active-count">
-            🤠 2,450+ Active Farmers
+            👨‍🌾 2,450+ Active Farmers
           </span>
         </div>
 
@@ -221,7 +433,7 @@ export const Community = () => {
             onClick={() => setActiveTab('all')} 
             className={`tab-pill ${activeTab === 'all' ? 'active' : ''}`}
           >
-            All Forum Posts
+            All Feed
           </button>
           <button 
             onClick={() => setActiveTab('my')} 
@@ -238,31 +450,175 @@ export const Community = () => {
         </div>
       </header>
 
-      {/* Posts Feed */}
+      {/* Search and Category Filter section */}
+      {activeTab !== 'replies' && (
+        <div className="filter-and-search-container mt-4">
+          <div className="search-bar-wrapper glass-card">
+            <Search size={18} className="search-icon" />
+            <input
+              type="text"
+              placeholder="Search posts by farmer, location, crops, keywords..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="search-input"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="search-clear">
+                <X size={16} />
+              </button>
+            )}
+          </div>
+
+          <div className="category-chips-row mt-3">
+            <button
+              onClick={() => setSelectedCategoryFilter('All')}
+              className={`filter-chip ${selectedCategoryFilter === 'All' ? 'active' : ''}`}
+            >
+              All
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategoryFilter(cat)}
+                className={`filter-chip ${selectedCategoryFilter === cat ? 'active' : ''}`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* My Posts Statistics Card */}
+      {activeTab === 'my' && (
+        <div className="my-stats-dashboard mt-4 glass-card">
+          <div className="stat-item">
+            <span className="stat-label">Total Posts</span>
+            <span className="stat-val">{myPosts.length}</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-label">Likes Received</span>
+            <span className="stat-val">❤️ {totalLikesCount}</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-label">Total Replies</span>
+            <span className="stat-val">💬 {totalRepliesCount}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area */}
       <div className="posts-feed mt-4">
-        {filteredMessages.length > 0 ? (
+        {loading ? (
+          // Skeleton loading state
+          <div className="skeleton-container">
+            {Array.from({ length: 3 }).map((_, idx) => (
+              <div key={idx} className="skeleton-card glass-card">
+                <div className="skeleton-header">
+                  <div className="skeleton-avatar"></div>
+                  <div className="skeleton-meta">
+                    <div className="skeleton-line short"></div>
+                    <div className="skeleton-line tiny"></div>
+                  </div>
+                </div>
+                <div className="skeleton-body mt-3">
+                  <div className="skeleton-line"></div>
+                  <div className="skeleton-line medium"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : activeTab === 'replies' ? (
+          // Replies Box View
+          <div className="replies-box-view">
+            {receivedReplies.length > 0 ? (
+              <div className="replies-box-list">
+                {receivedReplies.map((item) => (
+                  <div 
+                    key={item.replyId} 
+                    onClick={() => handleReplyClick(item.postId)}
+                    className="reply-box-card glass-card hover-glow"
+                  >
+                    <div className="reply-box-header">
+                      <span className="reply-box-author">👨‍🌾 {item.replyAuthor}</span>
+                      <span className="reply-box-time">{formatTimeAgo(item.createdAt)}</span>
+                    </div>
+                    <p className="reply-box-text mt-2">
+                      “{item.replyContent}”
+                    </p>
+                    <div className="reply-box-original-ref mt-2">
+                      <span className="ref-label">Original Post: </span>
+                      <span className="ref-snippet">
+                        {item.postTitle.length > 80 ? item.postTitle.substring(0, 80) + '...' : item.postTitle}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-feed glass-card">
+                <MessageSquare size={48} className="empty-icon mb-2" />
+                <p>No replies received from other farmers yet.</p>
+              </div>
+            )}
+          </div>
+        ) : filteredMessages.length > 0 ? (
+          // Standard Feed
           filteredMessages.map((msg) => {
+            const isOwner = msg.userId === user?._id || msg.userId === user?.id;
             const hasLiked = msg.likes?.includes(user?._id) || msg.likes?.includes(user?.id);
             const isRepliesExpanded = expandedReplies[msg._id];
 
             return (
-              <article key={msg._id} className="post-card glass-card">
-                {/* User Row */}
+              <article key={msg._id} id={`post-${msg._id}`} className="post-card glass-card">
+                {/* User Header Row */}
                 <div className="post-user-row">
                   <div className="post-avatar">
                     <span>{(msg.userName || 'F').charAt(0).toUpperCase()}</span>
                   </div>
                   <div className="post-user-meta">
-                    <h4>{msg.userName || 'Anonymous Farmer'}</h4>
+                    <div className="name-and-badge">
+                      <h4>{msg.userName || 'Anonymous Farmer'}</h4>
+                      {msg.category && (
+                        <span className="badge category-badge">
+                          {msg.category}
+                        </span>
+                      )}
+                    </div>
                     <span className="location-time">
                       {msg.userLocation || 'Global Farmer'} · {formatTimeAgo(msg.createdAt)}
                     </span>
                   </div>
+
+                  {/* Edit/Delete Actions for Owners */}
+                  {isOwner && (
+                    <div className="post-owner-actions ml-auto">
+                      <button 
+                        onClick={() => handleEditClick(msg)} 
+                        className="btn-action-icon edit-btn" 
+                        title="Edit Post"
+                      >
+                        <Edit size={14} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeletePost(msg._id)} 
+                        className="btn-action-icon delete-btn" 
+                        title="Delete Post"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Content */}
                 <div className="post-body mt-3">
                   <p>{msg.content}</p>
+                  {msg.imageUrl && (
+                    <div className="post-image-container mt-3">
+                      <img src={msg.imageUrl} alt="Uploaded post attachment" className="post-attachment-img" />
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions Footer */}
@@ -274,7 +630,7 @@ export const Community = () => {
                     title="Like Post"
                   >
                     <Star size={16} className={hasLiked ? 'fill-star' : ''} />
-                    <span>{msg.likes?.length || 0}</span>
+                    <span>{msg.likes?.length || 0} Likes</span>
                   </button>
 
                   <button 
@@ -283,7 +639,7 @@ export const Community = () => {
                     title="View Replies"
                   >
                     <MessageCircle size={16} />
-                    <span>{msg.replies?.length || 0}</span>
+                    <span>{msg.replies?.length || 0} Replies</span>
                   </button>
 
                   <button 
@@ -298,7 +654,7 @@ export const Community = () => {
 
                 {/* Expanded Replies Section */}
                 {isRepliesExpanded && (
-                  <div className="replies-section-expanded mt-3">
+                  <div className="replies-section-expanded mt-3 animate-fade-in">
                     <div className="replies-list">
                       {msg.replies && msg.replies.length > 0 ? (
                         msg.replies.map((reply) => (
@@ -346,36 +702,89 @@ export const Community = () => {
           })
         ) : (
           <div className="empty-feed glass-card">
-            <Users size={48} color="rgba(144, 165, 149, 0.2)" className="mb-2" />
-            <p>No community posts match this selection. Start a new topic!</p>
+            <Users size={48} className="empty-icon mb-2" />
+            <p>No community posts found matching this selection. Start a new topic!</p>
           </div>
         )}
       </div>
 
-      {/* Create Post Modal Overlay */}
+      {/* Create / Edit Post Modal Overlay */}
       {showPostModal && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-card">
+        <div className="modal-overlay animate-fade-in">
+          <div className="modal-content glass-card animate-scale-up">
             <div className="modal-header">
-              <h3>Create New Forum Post</h3>
-              <button onClick={() => setShowPostModal(false)} className="btn-close">
+              <h3>{editingPost ? 'Edit Forum Post' : 'Create New Forum Post'}</h3>
+              <button onClick={closePostModal} className="btn-close">
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleCreatePost} className="modal-form mt-3">
-              <textarea
-                placeholder="What is happening on your farm today? Share weather, crop observations, or ask questions to the community..."
-                value={postContent}
-                onChange={(e) => setPostContent(e.target.value)}
-                className="post-textarea"
-                required
-                maxLength={500}
-                rows={5}
-              ></textarea>
-              <div className="modal-footer mt-3">
+            
+            <div className="modal-user-meta mt-2">
+              <span className="modal-meta-tag">👨‍🌾 {user?.name || 'Ganesh Gidda'}</span>
+              <span className="modal-meta-tag">📍 {user?.location?.address || 'Pune, Maharashtra'}</span>
+            </div>
+
+            <form onSubmit={handleCreateOrUpdatePost} className="modal-form mt-3">
+              <div className="form-group mb-3">
+                <label className="form-label font-bold text-sm mb-1 block">Category / Topic</label>
+                <select
+                  value={postCategory}
+                  onChange={(e) => setPostCategory(e.target.value)}
+                  className="modal-select"
+                >
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group mb-3">
+                <label className="form-label font-bold text-sm mb-1 block">Post Content</label>
+                <textarea
+                  placeholder="What is happening on your farm today? Share weather, crop observations, or ask questions to the community..."
+                  value={postContent}
+                  onChange={(e) => setPostContent(e.target.value)}
+                  className="post-textarea"
+                  required
+                  maxLength={500}
+                  rows={4}
+                ></textarea>
+              </div>
+
+              {/* Optional image attachment */}
+              <div className="form-group mb-3">
+                <label className="form-label font-bold text-sm mb-1 block">Attach Photo (Optional)</label>
+                <div className="image-upload-wrapper">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    id="post-image-file"
+                    className="hidden-file-input"
+                  />
+                  <label htmlFor="post-image-file" className="file-upload-label">
+                    <Image size={16} /> {postImage ? 'Change Image' : 'Select Image'}
+                  </label>
+                  {postImage && (
+                    <div className="image-preview-container mt-2">
+                      <img src={postImage} alt="Preview of attached file" className="preview-thumbnail" />
+                      <button 
+                        type="button" 
+                        onClick={() => setPostImage('')} 
+                        className="btn-remove-preview"
+                        title="Remove Image"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="modal-footer mt-4">
                 <button 
                   type="button" 
-                  onClick={() => setShowPostModal(false)} 
+                  onClick={closePostModal} 
                   className="btn btn-outline"
                 >
                   Cancel
@@ -385,7 +794,9 @@ export const Community = () => {
                   className="btn btn-primary"
                   disabled={!postContent.trim() || submittingPost}
                 >
-                  {submittingPost ? 'Publishing...' : 'Publish Post'}
+                  {submittingPost 
+                    ? 'Submitting...' 
+                    : (editingPost ? 'Update Post' : 'Publish Post')}
                 </button>
               </div>
             </form>
@@ -397,7 +808,24 @@ export const Community = () => {
         .community-page-wrapper {
           max-width: 800px;
           margin: 0 auto;
-          padding-bottom: 50px;
+          padding-bottom: 80px;
+          animation: fadeIn 0.4s ease-out;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes scaleUp {
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.25s ease-out;
+        }
+        .animate-scale-up {
+          animation: scaleUp 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         
         /* Green Forum Header Card */
@@ -478,6 +906,106 @@ export const Community = () => {
           border-color: #fff;
           box-shadow: 0 4px 10px rgba(0,0,0,0.15);
         }
+
+        /* Search & Filter Containers */
+        .filter-and-search-container {
+          display: flex;
+          flex-direction: column;
+        }
+        .search-bar-wrapper {
+          display: flex;
+          align-items: center;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: var(--border-radius-sm);
+          padding: 10px 16px;
+          gap: 10px;
+        }
+        .search-icon {
+          color: var(--text-secondary);
+        }
+        .search-input {
+          flex-grow: 1;
+          background: transparent;
+          border: none;
+          outline: none;
+          color: var(--text-primary);
+          font-size: 14px;
+        }
+        .search-input::placeholder {
+          color: var(--text-secondary);
+        }
+        .search-clear {
+          background: transparent;
+          border: none;
+          color: var(--text-secondary);
+          cursor: pointer;
+        }
+        .search-clear:hover {
+          color: var(--text-primary);
+        }
+
+        .category-chips-row {
+          display: flex;
+          gap: 8px;
+          overflow-x: auto;
+          padding-bottom: 6px;
+          scrollbar-width: none; /* Firefox */
+        }
+        .category-chips-row::-webkit-scrollbar {
+          display: none; /* Safari and Chrome */
+        }
+        .filter-chip {
+          white-space: nowrap;
+          background: rgba(255, 255, 255, 0.05);
+          color: var(--text-secondary);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          padding: 6px 14px;
+          border-radius: 16px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: var(--transition-smooth);
+        }
+        .filter-chip:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: var(--text-primary);
+        }
+        .filter-chip.active {
+          background: #2e7d32;
+          color: #ffffff;
+          border-color: #2e7d32;
+          box-shadow: 0 4px 8px rgba(46, 125, 50, 0.25);
+        }
+
+        /* Stats Dashboard styling */
+        .my-stats-dashboard {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          padding: 16px 24px;
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: var(--border-radius-sm);
+        }
+        .stat-item {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+        }
+        .stat-label {
+          font-size: 11px;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .stat-val {
+          font-size: 18px;
+          font-weight: 800;
+          color: #ffffff;
+          margin-top: 4px;
+        }
         
         /* Post Cards - White premium theme inside dark layout */
         .post-card {
@@ -493,6 +1021,10 @@ export const Community = () => {
         .post-card:hover {
           transform: translateY(-2px);
           box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+        }
+        .highlighted-post {
+          border: 2px solid #2e7d32 !important;
+          box-shadow: 0 8px 24px rgba(46, 125, 50, 0.25) !important;
         }
         .post-user-row {
           display: flex;
@@ -512,19 +1044,71 @@ export const Community = () => {
           font-size: 18px;
           border: 1.5px solid #c8e6c9;
         }
+        .post-user-meta {
+          flex-grow: 1;
+        }
+        .name-and-badge {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
         .post-user-meta h4 {
           color: #2c3e50;
           font-size: 16px;
           font-weight: 700;
+          margin: 0;
+        }
+        .category-badge {
+          background: #e8f5e9;
+          color: #2e7d32;
+          font-size: 10px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 12px;
+          border: 1px solid #c8e6c9;
         }
         .location-time {
           font-size: 11px;
           color: #7f8c8d;
         }
+
+        .post-owner-actions {
+          display: flex;
+          gap: 4px;
+        }
+        .btn-action-icon {
+          background: transparent;
+          border: none;
+          color: #95a5a6;
+          padding: 6px;
+          border-radius: 50%;
+          cursor: pointer;
+          transition: var(--transition-smooth);
+        }
+        .btn-action-icon:hover {
+          background: #f5f5f5;
+        }
+        .edit-btn:hover {
+          color: #2e7d32;
+        }
+        .delete-btn:hover {
+          color: #e74c3c;
+        }
+
         .post-body p {
           font-size: 14px;
           line-height: 1.6;
           color: #4a4a4a;
+          margin: 0;
+        }
+
+        .post-attachment-img {
+          width: 100%;
+          max-height: 350px;
+          object-fit: cover;
+          border-radius: var(--border-radius-sm);
+          border: 1px solid rgba(0, 0, 0, 0.08);
         }
         
         /* Post Actions Footer */
@@ -653,6 +1237,50 @@ export const Community = () => {
           align-items: center;
           justify-content: center;
         }
+
+        /* Replies Box Tab list styling */
+        .replies-box-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .reply-box-card {
+          padding: 16px 20px;
+          cursor: pointer;
+          transition: var(--transition-smooth);
+        }
+        .reply-box-card:hover {
+          transform: translateX(4px);
+        }
+        .reply-box-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 12px;
+        }
+        .reply-box-author {
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+        .reply-box-time {
+          color: var(--text-secondary);
+        }
+        .reply-box-text {
+          font-size: 14px;
+          color: #ffffff;
+          line-height: 1.5;
+          font-style: italic;
+        }
+        .reply-box-original-ref {
+          font-size: 11px;
+        }
+        .ref-label {
+          color: var(--text-secondary);
+        }
+        .ref-snippet {
+          color: #2e7d32;
+          font-weight: 600;
+        }
         
         /* Empty Feed styling */
         .empty-feed {
@@ -660,11 +1288,54 @@ export const Community = () => {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          padding: 40px;
+          padding: 45px;
           text-align: center;
           color: var(--text-secondary);
         }
+        .empty-icon {
+          opacity: 0.2;
+        }
         
+        /* Skeleton Loading Cards styling */
+        .skeleton-card {
+          padding: 20px;
+          margin-bottom: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .skeleton-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .skeleton-avatar {
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.05);
+        }
+        .skeleton-meta {
+          flex-grow: 1;
+        }
+        .skeleton-line {
+          height: 12px;
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 4px;
+          margin-bottom: 8px;
+        }
+        .skeleton-line:last-child {
+          margin-bottom: 0;
+        }
+        .skeleton-line.short {
+          width: 40%;
+        }
+        .skeleton-line.tiny {
+          width: 20%;
+          height: 8px;
+        }
+        .skeleton-line.medium {
+          width: 70%;
+        }
+
         /* Create Post Modal Overlay */
         .modal-overlay {
           position: fixed;
@@ -678,9 +1349,10 @@ export const Community = () => {
           align-items: center;
           justify-content: center;
           z-index: 1000;
+          padding: 16px;
         }
         .modal-content {
-          width: 90%;
+          width: 100%;
           max-width: 500px;
           background: #ffffff;
           color: #333333;
@@ -697,7 +1369,7 @@ export const Community = () => {
         .modal-header h3 {
           color: #2c3e50;
           font-size: 18px;
-          font-weight: 700;
+          font-weight: 800;
         }
         .btn-close {
           background: transparent;
@@ -707,6 +1379,31 @@ export const Community = () => {
         }
         .btn-close:hover {
           color: #2c3e50;
+        }
+        .modal-user-meta {
+          display: flex;
+          gap: 12px;
+        }
+        .modal-meta-tag {
+          font-size: 12px;
+          background: #f1f2f6;
+          color: #57606f;
+          padding: 4px 10px;
+          border-radius: 12px;
+          font-weight: 600;
+        }
+        .modal-select {
+          width: 100%;
+          background: #f8f9fa;
+          border: 1px solid #dcdde1;
+          border-radius: var(--border-radius-sm);
+          padding: 8px 12px;
+          font-size: 14px;
+          color: #333;
+          outline: none;
+        }
+        .modal-select:focus {
+          border-color: #2e7d32;
         }
         .post-textarea {
           width: 100%;
@@ -722,6 +1419,54 @@ export const Community = () => {
         .post-textarea:focus {
           border-color: #2e7d32;
         }
+
+        .hidden-file-input {
+          display: none;
+        }
+        .file-upload-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #f1f2f6;
+          color: #2f3542;
+          font-size: 13px;
+          font-weight: 700;
+          padding: 8px 16px;
+          border-radius: var(--border-radius-sm);
+          cursor: pointer;
+          border: 1px solid #ced6e0;
+          transition: var(--transition-smooth);
+        }
+        .file-upload-label:hover {
+          background: #e4e7eb;
+        }
+        .image-preview-container {
+          position: relative;
+          display: inline-block;
+        }
+        .preview-thumbnail {
+          height: 80px;
+          width: 80px;
+          object-fit: cover;
+          border-radius: 8px;
+          border: 1px solid #ced6e0;
+        }
+        .btn-remove-preview {
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          background: #ff4757;
+          color: #fff;
+          border: none;
+          height: 18px;
+          width: 18px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+        }
+
         .modal-footer {
           display: flex;
           justify-content: flex-end;

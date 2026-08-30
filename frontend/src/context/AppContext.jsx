@@ -17,6 +17,7 @@ export const translations = {
     cart: 'Shopping Cart',
     notifications: 'Notifications',
     profile: 'My Profile',
+    vault: 'My Secure Documents',
     logout: 'Logout',
     welcome: 'Welcome back,',
     location: 'Current Location',

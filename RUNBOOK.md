@@ -79,11 +79,11 @@ The frontend is a single-page application built using **React** and **Vite**.
 - **Node.js** (v18.x or higher)
 
 ### Configuration
-- The API base URL is configured in [AppContext.jsx](file:///c:/Users/ksara/Downloads/AGROASSIST/frontend/src/context/AppContext.jsx#L167):
+- The API base URL is configured in [AppContext.jsx](file:///c:/Users/dell/Downloads/AGROASSIST/AGROASSIST/frontend/src/context/AppContext.jsx#L171):
   ```javascript
-  const API_URL = 'http://localhost:5000/api';
+  const API_URL = import.meta.env.VITE_API_URL || 'https://pdd-backend-s6yk.onrender.com/api';
   ```
-  If your backend is running on a different port or server, update this value.
+  Or override it in `frontend/.env` via `VITE_API_URL`.
 
 ### Installation & Execution
 1. Navigate to the frontend directory:
@@ -92,7 +92,7 @@ The frontend is a single-page application built using **React** and **Vite**.
    ```
 2. Install dependencies:
    ```bash
-   npm install
+   cd frontend && npm install
    ```
 3. Start the development server:
    ```bash
@@ -115,9 +115,9 @@ The mobile application is cross-platform, built with **Flutter**.
 - **Dart SDK** (comes bundled with Flutter)
 
 ### Configuration
-- **API URL Connection**: The app connects to the API via the endpoint specified in [main.dart](file:///c:/Users/ksara/Downloads/AGROASSIST/mobile/lib/main.dart#L90):
+- **API URL Connection**: The app connects to the Render API endpoint specified in [main.dart](file:///c:/Users/dell/Downloads/AGROASSIST/AGROASSIST/mobile/lib/main.dart#L91):
   ```dart
-  final String apiUrl = 'http://10.0.2.2:5000/api'; // Android Emulator localhost bridge
+  final String apiUrl = 'https://pdd-backend-s6yk.onrender.com/api';
   ```
   - **Android Emulator**: Keep it as `http://10.0.2.2:5000/api` (it forwards to host machine's localhost).
   - **iOS Simulator**: Change it to `http://localhost:5000/api`.

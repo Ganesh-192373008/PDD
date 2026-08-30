@@ -21,6 +21,7 @@ import { Community } from './views/Community';
 import { History } from './views/History';
 import { DetailedReport } from './views/DetailedReport';
 import { RecommendedProducts } from './views/RecommendedProducts';
+import { DocumentVaultView } from './views/DocumentVaultView';
 
 // Auth Guard component for protecting private routes
 const ProtectedLayout = ({ children }) => {
@@ -68,6 +69,11 @@ function AppContent() {
         <Route path="/scan" element={
           <ProtectedLayout>
             <ScanCrop />
+          </ProtectedLayout>
+        } />
+        <Route path="/documents" element={
+          <ProtectedLayout>
+            <DocumentVaultView />
           </ProtectedLayout>
         } />
         <Route path="/schemes" element={

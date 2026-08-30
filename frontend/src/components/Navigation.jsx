@@ -15,7 +15,8 @@ import {
   User,
   LogOut,
   Leaf,
-  Globe
+  Globe,
+  FolderLock
 } from 'lucide-react';
 
 export const Navigation = () => {
@@ -33,6 +34,7 @@ export const Navigation = () => {
     { path: '/', label: t('dashboard'), icon: LayoutDashboard },
     { path: '/ai-assistant', label: t('aiAssistant'), icon: MessageSquare },
     { path: '/scan', label: t('scanCrop'), icon: ScanEye },
+    { path: '/documents', label: '🔐 ' + (t('vault') || 'My Secure Documents'), icon: FolderLock },
     { path: '/schemes', label: t('schemes'), icon: FileSpreadsheet },
     { path: '/market-prices', label: t('marketPrices'), icon: TrendingUp },
     { path: '/community', label: t('community'), icon: Globe },

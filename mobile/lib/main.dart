@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:file_picker/file_picker.dart';
 import 'dart:async';
 
 void main() {
@@ -405,6 +406,123 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       debugPrint('Clear cart error: $e');
     }
+  }
+
+  // ------------------------------------------
+  // 🔐 SECURE FARMER DOCUMENT VAULT
+  // ------------------------------------------
+  List<dynamic> _documents = [];
+  Map<String, dynamic> _vaultStats = {};
+  List<dynamic> get documents => _documents;
+  Map<String, dynamic> get vaultStats => _vaultStats;
+
+  Future<void> fetchDocuments({String search = '', String group = '', String category = ''}) async {
+    if (_token.isEmpty) return;
+    try {
+      String url = '$apiUrl/documents?';
+      if (group.isNotEmpty && group != 'All') url += 'group=$group&';
+      if (category.isNotEmpty && category != 'All') url += 'category=$category&';
+      if (search.trim().isNotEmpty) url += 'q=${Uri.encodeComponent(search.trim())}&';
+
+      final res = await http.get(
+        Uri.parse(url),
+        headers: {'Authorization': 'Bearer $_token'}
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        _documents = data['documents'] ?? [];
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Fetch documents error: $e');
+    }
+  }
+
+  Future<void> fetchVaultStats() async {
+    if (_token.isEmpty) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$apiUrl/documents/stats/summary'),
+        headers: {'Authorization': 'Bearer $_token'}
+      );
+      if (res.statusCode == 200) {
+        _vaultStats = jsonDecode(res.body);
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Fetch vault stats error: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadDocument(File file, String name, String category, {String maskedNumber = '', String notes = ''}) async {
+    if (_token.isEmpty) return {'success': false, 'message': 'Please login first.'};
+    try {
+      final request = http.MultipartRequest('POST', Uri.parse('$apiUrl/documents/upload'));
+      request.headers['Authorization'] = 'Bearer $_token';
+      request.fields['documentName'] = name;
+      request.fields['category'] = category;
+      request.fields['maskedNumber'] = maskedNumber;
+      request.fields['notes'] = notes;
+      request.files.add(await http.MultipartFile.fromPath('file', file.path));
+
+      final streamedRes = await request.send();
+      final res = await http.Response.fromStream(streamedRes);
+      final data = jsonDecode(res.body);
+
+      if (res.statusCode == 201 && data['success'] == true) {
+        await fetchDocuments();
+        await fetchVaultStats();
+        return {'success': true, 'message': data['message']};
+      }
+      return {'success': false, 'message': data['message'] ?? 'Upload failed.'};
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error during upload.'};
+    }
+  }
+
+  Future<bool> updateDocument(String id, String name, String category, {String maskedNumber = '', String notes = ''}) async {
+    if (_token.isEmpty) return false;
+    try {
+      final res = await http.put(
+        Uri.parse('$apiUrl/documents/$id'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_token'
+        },
+        body: jsonEncode({
+          'documentName': name,
+          'category': category,
+          'maskedNumber': maskedNumber,
+          'notes': notes
+        })
+      );
+      if (res.statusCode == 200) {
+        await fetchDocuments();
+        await fetchVaultStats();
+        return true;
+      }
+    } catch (e) {
+      debugPrint('Update document error: $e');
+    }
+    return false;
+  }
+
+  Future<bool> deleteDocument(String id) async {
+    if (_token.isEmpty) return false;
+    try {
+      final res = await http.delete(
+        Uri.parse('$apiUrl/documents/$id'),
+        headers: {'Authorization': 'Bearer $_token'}
+      );
+      if (res.statusCode == 200) {
+        await fetchDocuments();
+        await fetchVaultStats();
+        return true;
+      }
+    } catch (e) {
+      debugPrint('Delete document error: $e');
+    }
+    return false;
   }
 
   // Dictionary translations helper
@@ -1644,6 +1762,9 @@ class _DashboardTabState extends State<DashboardTab> {
               mainAxisSpacing: 16,
               childAspectRatio: 1.4,
               children: [
+                _buildActionCard(Icons.folder_shared, '🔐 Document Vault', Colors.teal.shade700, () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const DocumentVaultScreen()));
+                }),
                 _buildActionCard(Icons.water_drop, 'Irrigation', Colors.teal, () {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const WaterManagementScreen()));
                 }),
@@ -3477,7 +3598,76 @@ class _ProfileTabState extends State<ProfileTab> {
                 );
               }).toList(),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
+
+            // Farmer Document Vault Access Card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [AppColors.primary.withOpacity(0.25), AppColors.bgCardDark],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.primary.withOpacity(0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.folder_shared, color: AppColors.primary, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '🔐 My Secure Documents',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Farmer Document Vault • Bank-Grade Private Storage',
+                              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      icon: const Icon(Icons.lock_open, size: 16, color: Colors.white),
+                      label: const Text('Open Document Vault', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const DocumentVaultScreen()),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
 
             SizedBox(
               width: double.infinity,
@@ -6261,3 +6451,862 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 }
+
+// ==========================================
+// 🔐 SECURE FARMER DOCUMENT VAULT SCREEN
+// ==========================================
+class DocumentVaultScreen extends StatefulWidget {
+  const DocumentVaultScreen({super.key});
+
+  @override
+  State<DocumentVaultScreen> createState() => _DocumentVaultScreenState();
+}
+
+class _DocumentVaultScreenState extends State<DocumentVaultScreen> {
+  String _selectedGroup = 'All';
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+  bool _loading = false;
+
+  final List<String> _groups = ['All', 'Identity', 'Farming', 'Government', 'Bills', 'Other'];
+
+  final List<Map<String, String>> _categories = [
+    {'name': 'Aadhaar Card', 'group': 'Identity', 'icon': '🪪'},
+    {'name': 'PAN Card', 'group': 'Identity', 'icon': '🪪'},
+    {'name': 'Voter ID', 'group': 'Identity', 'icon': '🪪'},
+    {'name': 'Driving License', 'group': 'Identity', 'icon': '🪪'},
+    {'name': 'Land Documents', 'group': 'Farming', 'icon': '🌾'},
+    {'name': 'Soil Test Report', 'group': 'Farming', 'icon': '🧪'},
+    {'name': 'Crop Insurance', 'group': 'Farming', 'icon': '🛡️'},
+    {'name': 'Farmer Registration', 'group': 'Farming', 'icon': '📜'},
+    {'name': 'Crop Certificate', 'group': 'Farming', 'icon': '🌱'},
+    {'name': 'Agriculture Certificate', 'group': 'Farming', 'icon': '🏆'},
+    {'name': 'Ration Card', 'group': 'Government', 'icon': '🏠'},
+    {'name': 'Income Certificate', 'group': 'Government', 'icon': '🏛️'},
+    {'name': 'Government Scheme Document', 'group': 'Government', 'icon': '📑'},
+    {'name': 'Government Certificate', 'group': 'Government', 'icon': '🏛️'},
+    {'name': 'Agricultural Invoice / Bill', 'group': 'Bills', 'icon': '🧾'},
+    {'name': 'Receipt', 'group': 'Bills', 'icon': '💳'},
+    {'name': 'Other Document', 'group': 'Other', 'icon': '📄'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVaultData();
+  }
+
+  Future<void> _loadVaultData() async {
+    setState(() => _loading = true);
+    final state = Provider.of<AppState>(context, listen: false);
+    await state.fetchDocuments(search: _searchQuery, group: _selectedGroup);
+    await state.fetchVaultStats();
+    if (mounted) setState(() => _loading = false);
+  }
+
+  void _showUploadBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.bgCardDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.lock, color: AppColors.primary, size: 20),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text('Upload to Secure Vault', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: Colors.teal.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.camera_alt, color: Colors.tealAccent),
+                  ),
+                  title: const Text('Capture with Camera', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  subtitle: const Text('Scan physical document, land deed or ID card', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickAndUpload(ImageSource.camera);
+                  },
+                ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: Colors.blue.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.photo_library, color: Colors.blueAccent),
+                  ),
+                  title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  subtitle: const Text('Select saved photos of documents', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickAndUpload(ImageSource.gallery);
+                  },
+                ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.picture_as_pdf, color: Colors.orangeAccent),
+                  ),
+                  title: const Text('Select PDF / File', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  subtitle: const Text('Upload PDF reports, schemes or tax proofs', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickFileAndUpload();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickAndUpload(ImageSource source) async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: source, imageQuality: 90);
+    if (picked != null) {
+      _showMetadataDialog(File(picked.path), picked.name);
+    }
+  }
+
+  Future<void> _pickFileAndUpload() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+    );
+    if (result != null && result.files.single.path != null) {
+      final file = File(result.files.single.path!);
+      _showMetadataDialog(file, result.files.single.name);
+    }
+  }
+
+  void _showMetadataDialog(File file, String defaultName) {
+    String selectedCategory = 'Aadhaar Card';
+    final nameController = TextEditingController(text: defaultName.replaceAll(RegExp(r'\.[^/.]+$'), ''));
+    final maskedController = TextEditingController();
+    final notesController = TextEditingController();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              backgroundColor: AppColors.bgCardDark,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppColors.border),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.shield, color: AppColors.primary, size: 22),
+                  SizedBox(width: 8),
+                  Text('Document Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: selectedCategory,
+                      decoration: const InputDecoration(
+                        labelText: 'Document Category *',
+                        border: OutlineInputBorder(),
+                      ),
+                      dropdownColor: AppColors.bgCardDark,
+                      items: _categories.map((c) {
+                        return DropdownMenuItem(
+                          value: c['name'],
+                          child: Text('${c['icon']} ${c['name']}', style: const TextStyle(fontSize: 13, color: Colors.white)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) setModalState(() => selectedCategory = val);
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Document Title *',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: maskedController,
+                      decoration: const InputDecoration(
+                        labelText: 'Masked Reference ID (Optional)',
+                        hintText: 'e.g. XXXX XXXX 1234',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: notesController,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes / Remarks (Optional)',
+                        hintText: 'e.g. For KCC subsidy renewal',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          if (nameController.text.trim().isEmpty) return;
+                          setModalState(() => isSaving = true);
+                          final state = Provider.of<AppState>(context, listen: false);
+                          final res = await state.uploadDocument(
+                            file,
+                            nameController.text.trim(),
+                            selectedCategory,
+                            maskedNumber: maskedController.text.trim(),
+                            notes: notesController.text.trim(),
+                          );
+                          if (mounted) {
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(res['message'] ?? 'Upload completed.'),
+                                backgroundColor: res['success'] == true ? AppColors.primary : AppColors.danger,
+                              ),
+                            );
+                          }
+                        },
+                  child: isSaving
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Save to Vault', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showEditDialog(Map<String, dynamic> doc) {
+    String selectedCategory = doc['category'] ?? 'Other Document';
+    final nameController = TextEditingController(text: doc['documentName'] ?? '');
+    final maskedController = TextEditingController(text: doc['maskedNumber'] ?? '');
+    final notesController = TextEditingController(text: doc['notes'] ?? '');
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              backgroundColor: AppColors.bgCardDark,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppColors.border),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.edit, color: Colors.orangeAccent, size: 22),
+                  SizedBox(width: 8),
+                  Text('Edit Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(labelText: 'Document Title *', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      value: selectedCategory,
+                      decoration: const InputDecoration(labelText: 'Category *', border: OutlineInputBorder()),
+                      dropdownColor: AppColors.bgCardDark,
+                      items: _categories.map((c) {
+                        return DropdownMenuItem(
+                          value: c['name'],
+                          child: Text('${c['icon']} ${c['name']}', style: const TextStyle(fontSize: 13, color: Colors.white)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) setModalState(() => selectedCategory = val);
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: maskedController,
+                      decoration: const InputDecoration(labelText: 'Masked Reference ID', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: notesController,
+                      maxLines: 2,
+                      decoration: const InputDecoration(labelText: 'Notes', border: OutlineInputBorder()),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: isSaving ? null : () => Navigator.pop(ctx), child: const Text('Cancel')),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          if (nameController.text.trim().isEmpty) return;
+                          setModalState(() => isSaving = true);
+                          final state = Provider.of<AppState>(context, listen: false);
+                          final ok = await state.updateDocument(
+                            doc['_id'],
+                            nameController.text.trim(),
+                            selectedCategory,
+                            maskedNumber: maskedController.text.trim(),
+                            notes: notesController.text.trim(),
+                          );
+                          if (mounted) {
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(ok ? 'Document details updated!' : 'Update failed.')),
+                            );
+                          }
+                        },
+                  child: const Text('Save', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showDeleteDialog(Map<String, dynamic> doc) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCardDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: AppColors.border)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever, color: AppColors.danger, size: 24),
+            SizedBox(width: 8),
+            Text('Delete Document?'),
+          ],
+        ),
+        content: Text('Are you sure you want to permanently delete "${doc['documentName']}"? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final state = Provider.of<AppState>(context, listen: false);
+              final ok = await state.deleteDocument(doc['_id']);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(ok ? 'Document permanently deleted from vault.' : 'Delete failed.'),
+                    backgroundColor: ok ? AppColors.primary : AppColors.danger,
+                  ),
+                );
+              }
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatSize(dynamic bytes) {
+    if (bytes == null) return '0 KB';
+    final num b = bytes is num ? bytes : 0;
+    if (b < 1024 * 1024) {
+      return '${(b / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(b / (1024 * 1024)).toStringAsFixed(2)} MB';
+  }
+
+  String _formatDate(dynamic dateStr) {
+    if (dateStr == null) return '';
+    try {
+      final dt = DateTime.parse(dateStr.toString()).toLocal();
+      return '${dt.day}/${dt.month}/${dt.year}';
+    } catch (e) {
+      return dateStr.toString();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = Provider.of<AppState>(context);
+    final docs = state.documents;
+    final stats = state.vaultStats;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('🔐 Farmer Document Vault'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: _loadVaultData,
+          )
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: AppColors.primary,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text('Upload Document', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        onPressed: _showUploadBottomSheet,
+      ),
+      body: RefreshIndicator(
+        onRefresh: _loadVaultData,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Vault Security Pill Banner
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.lock, color: AppColors.primary, size: 18),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Private & Protected: Bank-grade isolated vault. Documents are never exposed publicly or sent to AI.',
+                      style: TextStyle(fontSize: 11, color: Colors.greenAccent, height: 1.3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Stats Card Row
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.bgCardDark,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('TOTAL DOCS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
+                        const SizedBox(height: 4),
+                        Text('${stats['totalDocuments'] ?? docs.length}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.bgCardDark,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('STORAGE USED', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
+                        const SizedBox(height: 4),
+                        Text('${stats['totalMB'] ?? '0.00'} MB', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.amberAccent)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Search Bar
+            TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search documents by title or notes...',
+                prefixIcon: const Icon(Icons.search, size: 20, color: AppColors.textSecondary),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                          state.fetchDocuments(search: '', group: _selectedGroup);
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: AppColors.bgCardDark,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.border)),
+              ),
+              onChanged: (val) {
+                setState(() => _searchQuery = val);
+                state.fetchDocuments(search: val, group: _selectedGroup);
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // Category Filter Chips
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _groups.map((grp) {
+                  final isSelected = _selectedGroup == grp;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ChoiceChip(
+                      label: Text(
+                        grp == 'All' ? 'All' : grp == 'Identity' ? '🪪 Identity' : grp == 'Farming' ? '🌾 Farming' : grp == 'Government' ? '🏛️ Govt' : grp == 'Bills' ? '📄 Bills' : '📑 Other',
+                        style: TextStyle(
+                          color: isSelected ? Colors.white : AppColors.textSecondary,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 12,
+                        ),
+                      ),
+                      selected: isSelected,
+                      selectedColor: AppColors.primary,
+                      backgroundColor: AppColors.bgCardDark,
+                      onSelected: (val) {
+                        if (val) {
+                          setState(() => _selectedGroup = grp);
+                          state.fetchDocuments(search: _searchQuery, group: grp);
+                        }
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Documents List
+            if (_loading)
+              const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator(color: AppColors.primary)))
+            else if (docs.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(40),
+                decoration: BoxDecoration(
+                  color: AppColors.bgCardDark,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  children: [
+                    Icon(Icons.folder_open, size: 64, color: AppColors.primary.withOpacity(0.4)),
+                    const SizedBox(height: 14),
+                    const Text('No Documents Found', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const SizedBox(height: 6),
+                    Text(
+                      _searchQuery.isNotEmpty ? 'No documents matched your query.' : 'Tap "+ Upload Document" to save your records securely.',
+                      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              )
+            else
+              ...docs.map((d) {
+                final isPdf = d['fileType'] == 'application/pdf' || (d['fileExtension'] ?? '').toLowerCase() == '.pdf';
+
+                return Card(
+                  color: AppColors.bgCardDark,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: const BorderSide(color: AppColors.border),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: isPdf ? Colors.red.withOpacity(0.15) : Colors.green.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isPdf ? Colors.redAccent.withOpacity(0.4) : Colors.greenAccent.withOpacity(0.4),
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    isPdf ? Icons.picture_as_pdf : Icons.image,
+                                    size: 20,
+                                    color: isPdf ? Colors.redAccent : Colors.greenAccent,
+                                  ),
+                                  Text(
+                                    isPdf ? 'PDF' : (d['fileExtension'] ?? 'IMG').replaceAll('.', '').toUpperCase(),
+                                    style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    d['documentName'] ?? '',
+                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      d['category'] ?? 'Document',
+                                      style: const TextStyle(fontSize: 11, color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        if (d['maskedNumber'] != null && d['maskedNumber'].toString().isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black26,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.shield, size: 12, color: Colors.amberAccent),
+                                const SizedBox(width: 4),
+                                Text('ID: ${d['maskedNumber']}', style: const TextStyle(fontSize: 11, color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                        ],
+
+                        if (d['notes'] != null && d['notes'].toString().isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text('"${d['notes']}"', style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppColors.textSecondary)),
+                        ],
+
+                        const Divider(height: 20),
+
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '${_formatDate(d['createdAt'])} · ${_formatSize(d['fileSize'])}',
+                              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                            ),
+                            Row(
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.visibility, color: Colors.greenAccent, size: 20),
+                                  tooltip: 'View Document',
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(builder: (_) => DocumentViewerScreen(document: d)),
+                                    );
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.edit, color: Colors.orangeAccent, size: 20),
+                                  tooltip: 'Edit Details',
+                                  onPressed: () => _showEditDialog(d),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                  tooltip: 'Delete',
+                                  onPressed: () => _showDeleteDialog(d),
+                                ),
+                              ],
+                            )
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            const SizedBox(height: 80),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 👁️ DOCUMENT VIEWER SCREEN (PREVIEW & DOWNLOAD)
+// ==========================================
+class DocumentViewerScreen extends StatelessWidget {
+  final Map<String, dynamic> document;
+
+  const DocumentViewerScreen({super.key, required this.document});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = Provider.of<AppState>(context);
+    final isPdf = document['fileType'] == 'application/pdf' || (document['fileExtension'] ?? '').toLowerCase() == '.pdf';
+    final viewUrl = '${state.apiUrl}/documents/${document['_id']}/view';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(document['documentName'] ?? 'Document Preview'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: 'Download Document',
+            onPressed: () async {
+              final Uri uri = Uri.parse('${state.apiUrl}/documents/${document['_id']}/download');
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              } else if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Download started.')));
+              }
+            },
+          ),
+        ],
+      ),
+      body: isPdf
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+                      ),
+                      child: const Icon(Icons.picture_as_pdf, size: 64, color: Colors.redAccent),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      document['documentName'] ?? 'PDF Document',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Category: ${document['category']} · Secured in Vault',
+                      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 32),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                        icon: const Icon(Icons.open_in_browser, color: Colors.white),
+                        label: const Text('Open Secure PDF Stream', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        onPressed: () async {
+                          final Uri uri = Uri.parse(viewUrl);
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : Center(
+              child: InteractiveViewer(
+                panEnabled: true,
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Image.network(
+                  viewUrl,
+                  headers: {'Authorization': 'Bearer ${state.token}'},
+                  fit: BoxFit.contain,
+                  loadingBuilder: (ctx, child, progress) {
+                    if (progress == null) return child;
+                    return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+                  },
+                  errorBuilder: (ctx, err, stack) {
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.broken_image, size: 48, color: Colors.grey),
+                        const SizedBox(height: 8),
+                        const Text('Unable to load document image preview.'),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: () => launchUrl(Uri.parse(viewUrl), mode: LaunchMode.externalApplication),
+                          child: const Text('Open in Browser'),
+                        )
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+    );
+  }
+}
+
