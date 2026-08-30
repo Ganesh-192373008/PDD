@@ -139,6 +139,30 @@ router.delete('/:id', protect, async (req, res) => {
   }
 });
 
+// @route   POST api/notifications
+// @desc    Create a new notification for user
+router.post('/', protect, async (req, res) => {
+  try {
+    const { title, message, category } = req.body;
+    if (!title || !message) {
+      return res.status(400).json({ message: 'Title and message are required.' });
+    }
+
+    const notification = await Notification.create({
+      userId: req.user._id,
+      title,
+      message,
+      category: category || 'General Alert',
+      read: false
+    });
+
+    res.status(201).json(notification);
+  } catch (error) {
+    console.error('Error creating notification:', error);
+    res.status(500).json({ message: 'Server error creating notification.' });
+  }
+});
+
 // @route   DELETE api/notifications
 // @desc    Clear all user notifications
 router.delete('/', protect, async (req, res) => {
