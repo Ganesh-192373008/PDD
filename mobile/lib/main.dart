@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter_tts/flutter_tts.dart';
 import 'dart:async';
 
 void main() {
@@ -1791,10 +1793,54 @@ class _AIChatTabState extends State<AIChatTab> {
   bool _loading = false;
   Map<String, String>? _errorDetails;
 
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final FlutterTts _flutterTts = FlutterTts();
+  bool _isListening = false;
+  bool _speechAvailable = false;
+  String _liveSpokenWords = '';
+
   @override
   void initState() {
     super.initState();
+    _initVoiceServices();
     _loadHistory();
+  }
+
+  void _initVoiceServices() async {
+    try {
+      _speechAvailable = await _speech.initialize(
+        onError: (e) => debugPrint('STT init error: $e'),
+        onStatus: (status) {
+          if (status == 'done' || status == 'notListening') {
+            if (mounted) setState(() => _isListening = false);
+          }
+        },
+      );
+      await _flutterTts.setLanguage("en-IN");
+      await _flutterTts.setPitch(1.0);
+      await _flutterTts.setSpeechRate(0.5);
+    } catch (e) {
+      debugPrint('Voice services init: $e');
+    }
+  }
+
+  Future<void> _speakText(String text) async {
+    try {
+      await _flutterTts.stop();
+      final cleanText = text.replaceAll(RegExp(r'[*#_`]'), '');
+      await _flutterTts.speak(cleanText);
+    } catch (e) {
+      debugPrint('TTS speak error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _speech.stop();
+    _flutterTts.stop();
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadHistory() async {
@@ -1821,18 +1867,20 @@ class _AIChatTabState extends State<AIChatTab> {
 
   void _scrollToBottom() {
     Timer(const Duration(milliseconds: 100), () {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
   Future<void> _handleSend() async {
     if (_controller.text.trim().isEmpty || _loading) return;
 
-    final userMsg = _controller.text;
+    final userMsg = _controller.text.trim();
     _controller.clear();
     setState(() {
       _messages.add({'role': 'user', 'content': userMsg});
@@ -1850,33 +1898,38 @@ class _AIChatTabState extends State<AIChatTab> {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${state.token}',
         },
-        body: jsonEncode({'messages': _messages}),
+        body: jsonEncode({
+          'messages': _messages,
+          'location': state.location
+        }),
       );
 
       final data = jsonDecode(res.body);
 
       if (res.statusCode == 200) {
+        final reply = data['content'] ?? '';
         setState(() {
-          _messages.add({'role': 'assistant', 'content': data['content']});
+          _messages.add({'role': 'assistant', 'content': reply});
         });
         _saveHistory();
+        _speakText(reply); // Automatically speak the answer aloud
       } else {
         setState(() {
           _errorDetails = {
             'message': data['message'] ?? 'Error communicating with AI Assistant.',
-            'detail': data['detail'] ?? 'Ensure your local Ollama instance is configured.'
+            'detail': data['detail'] ?? 'Ensure Groq AI connectivity.'
           };
         });
       }
     } catch (e) {
       setState(() {
         _errorDetails = {
-          'message': 'AI service offline.',
-          'detail': 'Ensure Ollama is running locally on port 11434 and backend has connectivity.'
+          'message': 'AI service temporarily unavailable.',
+          'detail': 'Please check your internet connection.'
         };
       });
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
       _scrollToBottom();
     }
   }
@@ -1924,7 +1977,7 @@ class _AIChatTabState extends State<AIChatTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('AI Farming Voice Assistant', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-                  Text('Llama-3.3 Agri Intelligence', style: TextStyle(fontSize: 12, color: Colors.greenAccent)),
+                  Text('Qwen-3.8 Agri Intelligence', style: TextStyle(fontSize: 12, color: Colors.greenAccent)),
                 ],
               ),
               IconButton(
@@ -1997,6 +2050,7 @@ class _AIChatTabState extends State<AIChatTab> {
                           children: [
                             InkWell(
                               onTap: () {
+                                _speakText(msg['content'] ?? '');
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Row(
@@ -2006,7 +2060,7 @@ class _AIChatTabState extends State<AIChatTab> {
                                         Text('Voice Assistant: Speaking response aloud...'),
                                       ],
                                     ),
-                                    duration: Duration(seconds: 3),
+                                    duration: Duration(seconds: 2),
                                   ),
                                 );
                               },
@@ -2038,7 +2092,7 @@ class _AIChatTabState extends State<AIChatTab> {
           ),
         ),
 
-        // Chat Input box with Voice Mic
+        // Chat Input box with Real Voice Mic
         Padding(
           padding: const EdgeInsets.all(16.0),
           child: Row(
@@ -2047,13 +2101,13 @@ class _AIChatTabState extends State<AIChatTab> {
               Container(
                 margin: const EdgeInsets.only(right: 8),
                 decoration: BoxDecoration(
-                  color: AppColors.secondary.withOpacity(0.15),
+                  color: _isListening ? Colors.redAccent.withOpacity(0.25) : AppColors.secondary.withOpacity(0.15),
                   shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.secondary.withOpacity(0.4)),
+                  border: Border.all(color: _isListening ? Colors.redAccent : AppColors.secondary.withOpacity(0.4)),
                 ),
                 child: IconButton(
-                  icon: const Icon(Icons.mic, color: AppColors.secondary, size: 22),
-                  tooltip: 'Voice Input',
+                  icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.redAccent : AppColors.secondary, size: 22),
+                  tooltip: 'Voice Speech Input',
                   onPressed: _handleVoiceInput,
                 ),
               ),
@@ -2099,67 +2153,170 @@ class _AIChatTabState extends State<AIChatTab> {
     );
   }
 
-  void _handleVoiceInput() {
+  void _handleVoiceInput() async {
+    bool available = await _speech.initialize(
+      onError: (e) => debugPrint('STT error: $e'),
+      onStatus: (status) => debugPrint('STT status: $status'),
+    );
+
+    if (!mounted) return;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.bgCardDark,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) {
-        return Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.mic, size: 48, color: Colors.greenAccent),
-              ),
-              const SizedBox(height: 16),
-              const Text('Voice Farming Assistant', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-              const SizedBox(height: 6),
-              const Text('Speak clearly into your microphone...', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-              const SizedBox(height: 20),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
+        return StatefulBuilder(
+          builder: (modalContext, setModalState) {
+            void startListening() {
+              if (available) {
+                setModalState(() {
+                  _isListening = true;
+                  _liveSpokenWords = 'Listening to your voice...';
+                });
+                _speech.listen(
+                  onResult: (result) {
+                    setModalState(() {
+                      _liveSpokenWords = result.recognizedWords;
+                    });
+                    if (result.recognizedWords.isNotEmpty) {
+                      _controller.text = result.recognizedWords;
+                    }
+                    if (result.finalResult && result.recognizedWords.isNotEmpty) {
+                      setModalState(() => _isListening = false);
+                      Navigator.pop(ctx);
+                      _handleSend();
+                    }
+                  },
+                );
+              }
+            }
+
+            void stopListening() {
+              _speech.stop();
+              setModalState(() => _isListening = false);
+              if (_controller.text.isNotEmpty) {
+                Navigator.pop(ctx);
+                _handleSend();
+              }
+            }
+
+            // Start immediately when opening modal
+            if (!_isListening && available) {
+              startListening();
+            }
+
+            return Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      _controller.text = 'How much fertilizer should I apply for my crop?';
-                      _handleSend();
+                  GestureDetector(
+                    onTap: () {
+                      if (_isListening) {
+                        stopListening();
+                      } else {
+                        startListening();
+                      }
                     },
-                    child: const Text('🌾 Fertilizer Dosage Advice', style: TextStyle(color: Colors.white)),
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: _isListening ? Colors.redAccent.withOpacity(0.2) : AppColors.primary.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: _isListening ? Colors.redAccent : Colors.greenAccent, width: 2),
+                      ),
+                      child: Icon(
+                        _isListening ? Icons.mic : Icons.mic_none,
+                        size: 48,
+                        color: _isListening ? Colors.redAccent : Colors.greenAccent,
+                      ),
+                    ),
                   ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      _controller.text = 'What are the current mandi rates for tomato and onion?';
-                      _handleSend();
-                    },
-                    child: const Text('💰 Check Mandi Rates', style: TextStyle(color: Colors.white)),
+                  const SizedBox(height: 16),
+                  Text(
+                    _isListening ? 'Listening to your question...' : 'Tap Mic to Speak',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                   ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      _controller.text = 'How to treat plant leaf yellowing and fungal spots?';
-                      _handleSend();
-                    },
-                    child: const Text('🐛 Pest & Fungal Care', style: TextStyle(color: Colors.white)),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Text(
+                      _liveSpokenWords.isNotEmpty ? _liveSpokenWords : 'Speak clearly in English or Hindi...',
+                      style: TextStyle(
+                        color: _liveSpokenWords.isNotEmpty ? Colors.white : AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
+                  const SizedBox(height: 20),
+                  if (_liveSpokenWords.isNotEmpty && _liveSpokenWords != 'Listening to your voice...')
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                        onPressed: () {
+                          _speech.stop();
+                          Navigator.pop(ctx);
+                          _handleSend();
+                        },
+                        icon: const Icon(Icons.send, color: Colors.white),
+                        label: const Text('Send Question to AI', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  const Text('Or tap a quick farming question:', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade800),
+                        onPressed: () {
+                          _speech.stop();
+                          Navigator.pop(ctx);
+                          _controller.text = 'How much fertilizer should I apply for my crop?';
+                          _handleSend();
+                        },
+                        child: const Text('🌾 Fertilizer Dosage Advice', style: TextStyle(color: Colors.white, fontSize: 12)),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo.shade800),
+                        onPressed: () {
+                          _speech.stop();
+                          Navigator.pop(ctx);
+                          _controller.text = 'What are the current mandi rates for tomato and onion?';
+                          _handleSend();
+                        },
+                        child: const Text('💰 Check Mandi Rates', style: TextStyle(color: Colors.white, fontSize: 12)),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange.shade800),
+                        onPressed: () {
+                          _speech.stop();
+                          Navigator.pop(ctx);
+                          _controller.text = 'How to treat plant leaf yellowing and fungal spots?';
+                          _handleSend();
+                        },
+                        child: const Text('🐛 Pest & Fungal Care', style: TextStyle(color: Colors.white, fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                 ],
               ),
-              const SizedBox(height: 12),
-            ],
-          ),
+            );
+          },
         );
       },
     );

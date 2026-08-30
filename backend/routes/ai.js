@@ -49,10 +49,12 @@ router.post('/chat', async (req, res) => {
   ];
 
   const modelsToTry = [
-    process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-    'llama-3.1-8b-instant',
-    'mixtral-8x7b-32768',
-    'gemma2-9b-it'
+    process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
+    'qwen/qwen3.8-27b',
+    'openai/gpt-oss-120b',
+    'qwen/qwen3.6-27b',
+    'openai/gpt-oss-20b',
+    'groq/compound-mini'
   ];
 
   const https = require('https');
