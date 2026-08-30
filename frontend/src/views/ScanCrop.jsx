@@ -1,14 +1,186 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { Camera, Upload, AlertCircle, RefreshCw, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { 
+  Camera, Upload, AlertCircle, RefreshCw, Sparkles, CheckCircle2, 
+  ShieldAlert, Share2, Download, ArrowLeft, Eye, ShoppingBag 
+} from 'lucide-react';
+import { getDiseaseDetails } from '../utils/diseaseDetails';
+import { jsPDF } from 'jspdf';
 
 export const ScanCrop = () => {
   const { token, API_URL, t } = useApp();
+  const navigate = useNavigate();
   const [image, setImage] = useState(null); // base64 or file
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [showShareModal, setShowShareModal] = useState(false);
+
+  const triggerPDFDownload = (scanResult) => {
+    try {
+      const doc = new jsPDF();
+      const details = getDiseaseDetails(scanResult.crop, scanResult.disease);
+      
+      // Header banner
+      doc.setFillColor(46, 125, 50); // Agro Green
+      doc.rect(0, 0, 210, 35, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(22);
+      doc.setFont("helvetica", "bold");
+      doc.text("AGROASSIST AI", 15, 18);
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text("Professional Plant Disease Diagnosis Report", 15, 26);
+      
+      // Title
+      doc.setTextColor(46, 125, 50);
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "bold");
+      doc.text("Disease Detection Summary", 15, 50);
+      
+      // Line separator
+      doc.setDrawColor(200, 200, 200);
+      doc.line(15, 55, 195, 55);
+      
+      // Info table layout
+      doc.setTextColor(50, 50, 50);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text("Crop Analyzed:", 15, 65);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${scanResult.crop}`, 60, 65);
+      
+      doc.setFont("helvetica", "bold");
+      doc.text("Diagnosis:", 15, 72);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${scanResult.disease}`, 60, 72);
+      
+      doc.setFont("helvetica", "bold");
+      doc.text("Scientific Name:", 15, 79);
+      doc.setFont("helvetica", "oblique");
+      doc.text(`${details.scientificName}`, 60, 79);
+      
+      doc.setFont("helvetica", "bold");
+      doc.text("Confidence Score:", 15, 86);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${scanResult.confidence}%`, 60, 86);
+      
+      doc.setFont("helvetica", "bold");
+      doc.text("Severity Level:", 15, 93);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${scanResult.severity || 'Moderate'}`, 60, 93);
+      
+      doc.setFont("helvetica", "bold");
+      doc.text("Date of Scan:", 15, 100);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${new Date().toLocaleDateString()}`, 60, 100);
+      
+      // Symptoms Section
+      doc.setTextColor(46, 125, 50);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("Key Symptoms Identified", 15, 115);
+      doc.line(15, 118, 195, 118);
+      
+      doc.setTextColor(80, 80, 80);
+      doc.setFontSize(10.5);
+      doc.setFont("helvetica", "normal");
+      let yPos = 125;
+      details.symptoms.forEach(sym => {
+        doc.text(`- ${sym}`, 20, yPos);
+        yPos += 7;
+      });
+      
+      // Causes Section
+      yPos += 3;
+      doc.setTextColor(46, 125, 50);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("Associated Causes", 15, yPos);
+      doc.line(15, yPos + 3, 195, yPos + 3);
+      yPos += 9;
+      
+      doc.setTextColor(80, 80, 80);
+      doc.setFontSize(10.5);
+      doc.setFont("helvetica", "normal");
+      details.causes.forEach(cause => {
+        doc.text(`- ${cause}`, 20, yPos);
+        yPos += 7;
+      });
+      
+      // Treatment & Prevention
+      yPos += 3;
+      doc.setTextColor(46, 125, 50);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("Treatment & Prevention Recommendations", 15, yPos);
+      doc.line(15, yPos + 3, 195, yPos + 3);
+      yPos += 9;
+      
+      doc.setTextColor(80, 80, 80);
+      doc.setFontSize(10);
+      
+      doc.setFont("helvetica", "bold");
+      doc.text("Immediate Treatment:", 15, yPos);
+      yPos += 5;
+      doc.setFont("helvetica", "normal");
+      const splitTreatment = doc.splitTextToSize(details.treatment, 175);
+      doc.text(splitTreatment, 15, yPos);
+      yPos += splitTreatment.length * 5 + 3;
+      
+      doc.setFont("helvetica", "bold");
+      doc.text("Prevention Measures:", 15, yPos);
+      yPos += 5;
+      doc.setFont("helvetica", "normal");
+      const splitPrevention = doc.splitTextToSize(details.prevention, 175);
+      doc.text(splitPrevention, 15, yPos);
+      
+      // Footer banner
+      doc.setFillColor(245, 245, 245);
+      doc.rect(0, 280, 210, 17, 'F');
+      doc.setTextColor(120, 120, 120);
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "normal");
+      doc.text("Report generated by AgroAssist AI Assistant. All recommendations are advisory.", 15, 290);
+      
+      const fileName = `${scanResult.crop.replace(/\s+/g, '_')}_${scanResult.disease.replace(/\s+/g, '_')}_Disease_Report.pdf`;
+      doc.save(fileName);
+      showToast('Report PDF downloaded successfully!', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to generate PDF.', 'error');
+    }
+  };
+
+  const handleShare = (scanResult) => {
+    const reportUrl = scanResult._id 
+      ? `${window.location.origin}/report/${scanResult._id}`
+      : `${window.location.origin}/report?crop=${encodeURIComponent(scanResult.crop)}&disease=${encodeURIComponent(scanResult.disease)}&confidence=${scanResult.confidence}&severity=${encodeURIComponent(scanResult.severity)}`;
+    
+    const shareText = `Disease detected: ${scanResult.disease}\nConfidence: ${scanResult.confidence}%\nSeverity: ${scanResult.severity}\nReport details: ${reportUrl}`;
+
+    if (navigator.share) {
+      navigator.share({
+        title: `${scanResult.crop} Disease Diagnostic Report`,
+        text: shareText,
+        url: reportUrl
+      }).then(() => {
+        showToast('Report shared successfully!', 'success');
+      }).catch(console.error);
+    } else {
+      setShowShareModal(true);
+    }
+  };
+
+  const showToast = (msg, type = 'success') => {
+    setSuccessMsg(msg);
+    setTimeout(() => setSuccessMsg(''), 3000);
+  };
   
   // Camera-specific states
   const [useCamera, setUseCamera] = useState(false);
@@ -217,6 +389,12 @@ export const ScanCrop = () => {
 
   return (
     <div className="scan-wrapper slide-in">
+      {successMsg && (
+        <div className="alert alert-success floating-alert">
+          <CheckCircle2 size={16} />
+          {successMsg}
+        </div>
+      )}
       <header className="scan-header mb-4">
         <h1>AI Crop Disease Detection</h1>
         <p className="subtitle">Snap or upload a leaf photo to diagnose diseases instantly using the PlantVillage model.</p>
@@ -320,40 +498,87 @@ export const ScanCrop = () => {
                 </div>
               </div>
             ) : (
-              <div className="diagnosis-result-details mt-3">
-                <div className="result-metric-row">
-                  <div className="metric-box">
-                    <span className="metric-label">CROP</span>
-                    <span className="metric-val">{result.crop}</span>
-                  </div>
-                  <div className="metric-box">
-                    <span className="metric-label">DIAGNOSIS</span>
-                    <span className="metric-val">{result.disease}</span>
-                  </div>
-                </div>
-
-                <div className="result-status-row mt-3">
-                  <div className="status-item">
-                    <span>Severity Level:</span>
-                    {renderSeverityBadge(result.severity)}
-                  </div>
-                  <div className="status-item">
-                    <span>Model Confidence:</span>
-                    <span className="confidence-percentage">{result.confidence}%</span>
+              <div className="diagnosis-result-details mt-3 animate-fade-in">
+                <div className="result-success-header">
+                  <ShieldAlert size={28} color="#e74c3c" className="alert-pulse mr-2" />
+                  <div>
+                    <h3 style={{ margin: 0, color: '#e74c3c' }}>Disease Detected!</h3>
+                    <p className="detection-subtitle" style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>
+                      {result.confidence}% Confidence
+                    </p>
                   </div>
                 </div>
 
-                <div className="recommendations-box mt-3">
-                  <div className="rec-header">
-                    <Sparkles size={18} color="#ffa000" />
-                    <strong>Recommended Actions & Care:</strong>
+                <div className="info-box-wrapper mt-3">
+                  <div className="info-box-row">
+                    <span className="info-box-label">Disease:</span>
+                    <span className="info-box-value highlight-disease">{result.disease}</span>
                   </div>
-                  <p className="rec-text mt-2">{result.recommendation}</p>
+                  <div className="info-box-row">
+                    <span className="info-box-label">Scientific Name:</span>
+                    <span className="info-box-value italic-value">
+                      {getDiseaseDetails(result.crop, result.disease).scientificName}
+                    </span>
+                  </div>
+                  <div className="info-box-row">
+                    <span className="info-box-label">Severity:</span>
+                    <span className="info-box-value">
+                      {renderSeverityBadge(result.severity)}
+                    </span>
+                  </div>
+                  <div className="info-box-row">
+                    <span className="info-box-label">Risk Level:</span>
+                    <span className="info-box-value" style={{ color: '#ff4757', fontWeight: 700 }}>
+                      {result.severity || 'High'}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="success-banner mt-3">
-                  <CheckCircle2 size={18} color="#81c784" />
-                  <span>Analysis complete. Saved to history log.</span>
+                {/* Recommended Products Quick Button */}
+                <div className="products-shortcut-box mt-4">
+                  <button 
+                    onClick={() => navigate(`/recommended-products?crop=${result.crop}&disease=${result.disease}`)} 
+                    className="btn btn-secondary btn-block font-bold"
+                  >
+                    🛒 View Recommended Products
+                  </button>
+                </div>
+
+                {/* Grid Action Buttons */}
+                <div className="action-buttons-grid mt-3">
+                  <button 
+                    onClick={() => {
+                      if (result._id) {
+                        navigate(`/report/${result._id}`);
+                      } else {
+                        navigate(`/report?crop=${result.crop}&disease=${result.disease}&confidence=${result.confidence}&severity=${result.severity}`);
+                      }
+                    }} 
+                    className="btn btn-primary"
+                  >
+                    <Eye size={16} /> View Detailed Report
+                  </button>
+
+                  <button 
+                    onClick={() => triggerPDFDownload(result)} 
+                    className="btn btn-outline"
+                  >
+                    <Download size={16} /> Download Report
+                  </button>
+
+                  <button 
+                    onClick={() => handleShare(result)} 
+                    className="btn btn-outline"
+                  >
+                    <Share2 size={16} /> Share Report
+                  </button>
+
+                  <button 
+                    onClick={() => navigate('/')} 
+                    className="btn btn-outline-danger"
+                  >
+                    Back to Home
+                  </button>
                 </div>
               </div>
             )
@@ -365,6 +590,66 @@ export const ScanCrop = () => {
           )}
         </section>
       </div>
+
+      {/* Share Modal Dialog Fallback */}
+      {showShareModal && result && (
+        <div className="modal-overlay" onClick={() => setShowShareModal(false)}>
+          <div className="modal-content glass-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ margin: 0 }}>Share Diagnostic Report</h3>
+              <button onClick={() => setShowShareModal(false)} className="btn-close" style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer' }}>
+                Close
+              </button>
+            </div>
+            <div className="share-actions-list mt-3" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button 
+                onClick={() => {
+                  const reportUrl = result._id 
+                    ? `${window.location.origin}/report/${result._id}`
+                    : `${window.location.origin}/report?crop=${encodeURIComponent(result.crop)}&disease=${encodeURIComponent(result.disease)}&confidence=${result.confidence}&severity=${encodeURIComponent(result.severity)}`;
+                  navigator.clipboard.writeText(reportUrl);
+                  showToast('Report URL copied to clipboard!', 'success');
+                  setShowShareModal(false);
+                }} 
+                className="share-modal-btn"
+                style={{ display: 'flex', padding: '10px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', cursor: 'pointer' }}
+              >
+                Copy Report Link
+              </button>
+              <button 
+                onClick={() => {
+                  const reportUrl = result._id 
+                    ? `${window.location.origin}/report/${result._id}`
+                    : `${window.location.origin}/report?crop=${encodeURIComponent(result.crop)}&disease=${encodeURIComponent(result.disease)}&confidence=${result.confidence}&severity=${encodeURIComponent(result.severity)}`;
+                  const shareText = encodeURIComponent(`Disease detected: ${result.disease}\nConfidence: ${result.confidence}%\nSeverity: ${result.severity}\nReport: ${reportUrl}`);
+                  window.open(`https://api.whatsapp.com/send?text=${shareText}`, '_blank');
+                  setShowShareModal(false);
+                }} 
+                className="share-modal-btn"
+                style={{ display: 'flex', padding: '10px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', cursor: 'pointer' }}
+              >
+                WhatsApp
+              </button>
+              <button 
+                onClick={() => {
+                  const reportUrl = result._id 
+                    ? `${window.location.origin}/report/${result._id}`
+                    : `${window.location.origin}/report?crop=${encodeURIComponent(result.crop)}&disease=${encodeURIComponent(result.disease)}&confidence=${result.confidence}&severity=${encodeURIComponent(result.severity)}`;
+                  const subject = encodeURIComponent(`${result.crop} Disease Diagnostic Report`);
+                  const body = encodeURIComponent(`Disease detected: ${result.disease}\nConfidence: ${result.confidence}%\nSeverity: ${result.severity}\nView full report: ${reportUrl}`);
+                  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                  setShowShareModal(false);
+                }} 
+                className="share-modal-btn"
+                style={{ display: 'flex', padding: '10px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', cursor: 'pointer' }}
+              >
+                Email
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       <style>{`
         .camera-view-container {
@@ -555,6 +840,93 @@ export const ScanCrop = () => {
         }
         @keyframes blinker {
           50% { opacity: 0.5; }
+        }
+
+        /* New Disease Detection Results Styling */
+        .result-success-header {
+          display: flex;
+          align-items: center;
+          background: rgba(231, 76, 60, 0.08);
+          border: 1px solid rgba(231, 76, 60, 0.2);
+          border-radius: var(--border-radius-sm);
+          padding: 16px;
+        }
+        .alert-pulse {
+          animation: alertPulse 2s infinite ease-in-out;
+        }
+        @keyframes alertPulse {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.08); opacity: 0.8; }
+        }
+        .info-box-wrapper {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .info-box-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 12px 16px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          border-radius: var(--border-radius-sm);
+          font-size: 13.5px;
+        }
+        .info-box-label {
+          color: var(--text-secondary);
+          font-weight: 700;
+        }
+        .info-box-value {
+          color: #fff;
+          font-weight: 700;
+        }
+        .highlight-disease {
+          color: #ffa000;
+        }
+        .italic-value {
+          font-style: italic;
+          color: var(--text-secondary);
+        }
+        .action-buttons-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+        .btn-outline-danger {
+          background: transparent;
+          border: 1px solid #ff4757;
+          color: #ff4757;
+          font-weight: 700;
+          padding: 10px;
+          border-radius: var(--border-radius-sm);
+          cursor: pointer;
+          transition: var(--transition-smooth);
+        }
+        .btn-outline-danger:hover {
+          background: rgba(255, 71, 87, 0.1);
+        }
+        
+        /* Modal styling */
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.7);
+          backdrop-filter: blur(4px);
+          z-index: 100;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .modal-content {
+          width: 90%;
+          max-width: 400px;
+          background: #18221b;
+          border: 1px solid var(--border-color);
+          padding: 24px;
+          border-radius: var(--border-radius-md);
         }
       `}</style>
     </div>

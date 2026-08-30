@@ -19,6 +19,8 @@ import { ProfileView } from './views/ProfileView';
 import { LandingPage } from './views/LandingPage';
 import { Community } from './views/Community';
 import { History } from './views/History';
+import { DetailedReport } from './views/DetailedReport';
+import { RecommendedProducts } from './views/RecommendedProducts';
 
 // Auth Guard component for protecting private routes
 const ProtectedLayout = ({ children }) => {
@@ -116,6 +118,21 @@ function AppContent() {
         <Route path="/history" element={
           <ProtectedLayout>
             <History />
+          </ProtectedLayout>
+        } />
+        <Route path="/report/:scanId" element={
+          <ProtectedLayout>
+            <DetailedReport />
+          </ProtectedLayout>
+        } />
+        <Route path="/report" element={
+          <ProtectedLayout>
+            <DetailedReport />
+          </ProtectedLayout>
+        } />
+        <Route path="/recommended-products" element={
+          <ProtectedLayout>
+            <RecommendedProducts />
           </ProtectedLayout>
         } />
 
