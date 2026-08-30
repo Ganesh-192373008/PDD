@@ -80,11 +80,13 @@ router.get('/', protect, async (req, res) => {
 // @desc    Create a new fertilizer schedule
 router.post('/', protect, async (req, res) => {
   try {
-    const { crop, growthStage, soilInfo, plantingDate, fieldSize, remindersEnabled, applicationTime, nextApplication } = req.body;
+    const { crop, growthStage, soilInfo, plantingDate, fieldSize, remindersEnabled, applicationTime, alarmTime, nextApplication } = req.body;
 
     if (!crop || !growthStage || !soilInfo || !plantingDate || !fieldSize) {
       return res.status(400).json({ message: 'All fields are required.' });
     }
+
+    const alarm = applicationTime || alarmTime || '08:00 AM';
 
     let nextAppDate;
     const { fertilizerType, nextApplication: calcNextApp } = calculateFertilizationMetrics(crop, growthStage, soilInfo);
@@ -104,7 +106,7 @@ router.post('/', protect, async (req, res) => {
       remindersEnabled: remindersEnabled !== undefined ? remindersEnabled : true,
       fertilizerType,
       nextApplication: nextAppDate,
-      applicationTime: applicationTime || '08:00'
+      applicationTime: alarm
     });
 
     res.status(201).json(schedule);

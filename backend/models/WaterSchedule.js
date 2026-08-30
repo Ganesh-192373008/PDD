@@ -26,6 +26,9 @@ const WaterScheduleSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  irrigationType: {
+    type: String,
+  },
   remindersEnabled: {
     type: Boolean,
     default: true,
@@ -35,7 +38,11 @@ const WaterScheduleSchema = new mongoose.Schema({
   },
   wateringTime: {
     type: String,
-    default: '08:00'
+    default: '07:00 AM'
+  },
+  irrigationTime: {
+    type: String,
+    default: '07:00 AM'
   },
   createdAt: {
     type: Date,

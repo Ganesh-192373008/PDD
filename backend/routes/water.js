@@ -68,9 +68,12 @@ router.get('/', protect, async (req, res) => {
 // @desc    Create a new watering schedule
 router.post('/', protect, async (req, res) => {
   try {
-    const { crop, fieldSize, soilType, plantingDate, irrigationMethod, remindersEnabled, wateringTime, nextWatering } = req.body;
+    const { crop, fieldSize, soilType, plantingDate, irrigationMethod, irrigationType, remindersEnabled, wateringTime, irrigationTime, nextWatering } = req.body;
 
-    if (!crop || !fieldSize || !soilType || !plantingDate || !irrigationMethod) {
+    const method = irrigationMethod || irrigationType || 'Drip Irrigation';
+    const alarm = wateringTime || irrigationTime || '07:00 AM';
+
+    if (!crop || !fieldSize || !soilType || !plantingDate) {
       return res.status(400).json({ message: 'All inputs are required.' });
     }
 
@@ -88,10 +91,12 @@ router.post('/', protect, async (req, res) => {
       fieldSize: parseFloat(fieldSize),
       soilType,
       plantingDate,
-      irrigationMethod,
+      irrigationMethod: method,
+      irrigationType: method,
       remindersEnabled: remindersEnabled !== undefined ? remindersEnabled : true,
       nextWatering: nextWateringDate,
-      wateringTime: wateringTime || '08:00'
+      wateringTime: alarm,
+      irrigationTime: alarm
     });
 
     res.status(201).json(schedule);

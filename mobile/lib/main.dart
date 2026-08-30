@@ -3978,6 +3978,7 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
       _error = '';
     });
     final state = Provider.of<AppState>(context, listen: false);
+    final String formattedAlarmTime = _alarmTime.format(context);
     try {
       final res = await http.post(
         Uri.parse('${state.apiUrl}/water'),
@@ -3991,8 +3992,10 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
           'soilType': _soilType,
           'plantingDate': _plantingDate.toIso8601String().split('T')[0],
           'nextWatering': _nextWateringDate.toIso8601String().split('T')[0],
-          'irrigationTime': '${_alarmTime.hour.toString().padLeft(2, '0')}:${_alarmTime.minute.toString().padLeft(2, '0')}',
+          'wateringTime': formattedAlarmTime,
+          'irrigationTime': formattedAlarmTime,
           'irrigationMethod': _irrigationMethod,
+          'irrigationType': _irrigationMethod,
         }),
       );
       if (res.statusCode == 201 || res.statusCode == 200) {
@@ -4211,6 +4214,8 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
                           children: _schedules.map((s) {
                             final next = s['nextWatering'] != null ? DateTime.parse(s['nextWatering']) : DateTime.now();
                             final bool reminders = s['remindersEnabled'] ?? true;
+                            final String methodText = s['irrigationMethod'] ?? s['irrigationType'] ?? 'Drip Irrigation';
+                            final String timeText = s['wateringTime'] ?? s['irrigationTime'] ?? '07:00 AM';
                             
                             return Card(
                               color: AppColors.bgCardDark,
@@ -4249,13 +4254,13 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                           decoration: BoxDecoration(color: Colors.teal.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                                          child: Text('${s['irrigationType'] ?? 'Drip Irrigation'}', style: const TextStyle(color: Colors.tealAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                          child: Text(methodText, style: const TextStyle(color: Colors.tealAccent, fontSize: 11, fontWeight: FontWeight.bold)),
                                         ),
                                         const SizedBox(width: 8),
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                           decoration: BoxDecoration(color: Colors.amber.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                                          child: Text('⏰ Alarm: ${s['irrigationTime'] ?? '07:00 AM'}', style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                          child: Text('⏰ Alarm: $timeText', style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold)),
                                         ),
                                       ],
                                     ),
@@ -4365,6 +4370,7 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
       _error = '';
     });
     final state = Provider.of<AppState>(context, listen: false);
+    final String formattedAlarmTime = _alarmTime.format(context);
     try {
       final res = await http.post(
         Uri.parse('${state.apiUrl}/fertilizer'),
@@ -4379,7 +4385,8 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
           'soilInfo': _soilInfo,
           'plantingDate': _plantingDate.toIso8601String().split('T')[0],
           'nextApplication': _nextApplicationDate.toIso8601String().split('T')[0],
-          'applicationTime': '${_alarmTime.hour.toString().padLeft(2, '0')}:${_alarmTime.minute.toString().padLeft(2, '0')}',
+          'applicationTime': formattedAlarmTime,
+          'alarmTime': formattedAlarmTime,
         }),
       );
       if (res.statusCode == 201 || res.statusCode == 200) {
@@ -4633,6 +4640,7 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
                           children: _schedules.map((s) {
                             final next = s['nextApplication'] != null ? DateTime.parse(s['nextApplication']) : DateTime.now();
                             final bool reminders = s['remindersEnabled'] ?? true;
+                            final String timeText = s['applicationTime'] ?? s['alarmTime'] ?? '08:00 AM';
                             
                             return Card(
                               color: AppColors.bgCardDark,
@@ -4682,7 +4690,7 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                           decoration: BoxDecoration(color: Colors.amber.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                                          child: Text('⏰ Alarm: ${s['applicationTime'] ?? '08:00 AM'}', style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                          child: Text('⏰ Alarm: $timeText', style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold)),
                                         ),
                                       ],
                                     ),
