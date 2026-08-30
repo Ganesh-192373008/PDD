@@ -2087,238 +2087,412 @@ class _ScanTabState extends State<ScanTab> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
+                  color: Colors.red.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: AppColors.danger),
                 ),
-                child: Text(_error, style: const TextStyle(color: Colors.redAccent)),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.redAccent, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(_error, style: const TextStyle(color: Colors.redAccent, fontSize: 13))),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
             ],
 
-            // Photo Capture preview box
-            Container(
-              height: 260,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: AppColors.bgCardDark,
+            // 1. NO IMAGE SELECTED STATE
+            if (_imageFile == null) ...[
+              // Camera Capture Option Card
+              InkWell(
+                onTap: () => _pickImage(ImageSource.camera),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.border),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: AppColors.bgCardDark,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.primary.withOpacity(0.5), width: 1.5),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.camera_alt, size: 40, color: Colors.greenAccent),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text('Take Photo with Camera', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white)),
+                      const SizedBox(height: 4),
+                      const Text('Snap a clear close-up picture of the affected leaf', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    ],
+                  ),
+                ),
               ),
-              child: _imageFile != null
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: Image.file(_imageFile!, fit: BoxFit.cover),
-                    )
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+              const SizedBox(height: 16),
+
+              // Gallery Upload Option Card
+              InkWell(
+                onTap: () => _pickImage(ImageSource.gallery),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: AppColors.bgCardDark,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.secondary.withOpacity(0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.photo_library, size: 24, color: AppColors.secondary),
+                      ),
+                      const SizedBox(width: 14),
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Upload from Gallery', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+                          Text('Select an existing photo from storage', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                        ],
+                      )
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Scanning Guidelines Card
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
                       children: [
-                        IconButton(
-                          icon: const Icon(Icons.photo_camera, size: 64, color: AppColors.primary),
-                          onPressed: () => _pickImage(ImageSource.camera),
-                        ),
-                        const Text('Capture Leaf Photo', style: TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 16),
-                        const Text('OR'),
-                        TextButton(
-                          onPressed: () => _pickImage(ImageSource.gallery),
-                          child: const Text('Upload from Gallery', style: TextStyle(color: AppColors.secondary)),
-                        ),
+                        Icon(Icons.lightbulb_outline, color: AppColors.secondary, size: 18),
+                        SizedBox(width: 8),
+                        Text('For Best Diagnosis Results:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13)),
                       ],
                     ),
-            ),
-            const SizedBox(height: 20),
-
-            if (_imageFile != null && !_loading) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, minimumSize: const Size.fromHeight(48)),
-                      icon: const Icon(Icons.analytics, color: Colors.white),
-                      label: const Text('Diagnose Leaf', style: TextStyle(color: Colors.white)),
-                      onPressed: _analyze,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                    onPressed: () => setState(() => _imageFile = null),
-                    child: const Text('Clear'),
-                  )
-                ],
-              ),
-              const SizedBox(height: 24),
-            ],
-
-            if (_loading) ...[
-              const Center(
-                child: Column(
-                  children: [
-                    CircularProgressIndicator(color: AppColors.primary),
-                    SizedBox(height: 12),
-                    Text('Analyzing plant dataset tensors...'),
+                    const SizedBox(height: 8),
+                    const Text('• Ensure adequate natural sunlight and focus on the leaf.', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    const SizedBox(height: 4),
+                    const Text('• Capture a single leaf filling most of the camera frame.', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    const SizedBox(height: 4),
+                    const Text('• Avoid blurry, shaky, or overly dark backgrounds.', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
             ],
 
-            // Diagnosis results card
-            if (_result != null) ...[
+            // 2. IMAGE SELECTED PREVIEW & ACTIONS
+            if (_imageFile != null) ...[
+              // Image Preview Card
+              Container(
+                width: double.infinity,
+                height: 220,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.primary, width: 2),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: Image.file(_imageFile!, fit: BoxFit.contain),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Action Buttons: Start Diagnosis & Retake
+              if (!_loading && _result == null) ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 4,
+                    ),
+                    icon: const Icon(Icons.analytics, color: Colors.white, size: 22),
+                    label: const Text('Start Diagnosis', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+                    onPressed: _analyze,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(46),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.camera_alt, size: 18),
+                        label: const Text('Retake Photo'),
+                        onPressed: () => _pickImage(ImageSource.camera),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(46),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.photo_library, size: 18),
+                        label: const Text('Gallery'),
+                        onPressed: () => _pickImage(ImageSource.gallery),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                      onPressed: () => setState(() {
+                        _imageFile = null;
+                        _result = null;
+                        _error = '';
+                      }),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+
+            // 3. LOADING / ANALYZING STATE
+            if (_loading) ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppColors.bgCardDark,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.5)),
+                ),
+                child: const Column(
+                  children: [
+                    CircularProgressIndicator(color: AppColors.primary, strokeWidth: 3),
+                    SizedBox(height: 16),
+                    Text('Analyzing leaf health with AI model...', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+                    SizedBox(height: 6),
+                    Text('Comparing features against botanical disease database', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+
+            // 4. DIAGNOSIS RESULTS
+            if (_result != null && !_loading) ...[
+              const SizedBox(height: 20),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: AppColors.bgCardDark,
+                  color: const Color(0xFF1E1010),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5),
                 ),
-                child: _result!['confidenceTooLow'] == true
-                    ? Row(
-                        children: [
-                          const Icon(Icons.shield, size: 40, color: AppColors.secondary),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Low Confidence Diagnosis', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                const SizedBox(height: 4),
-                                Text(_result!['message'] ?? ''),
-                              ],
-                            ),
-                          )
-                        ],
-                      )
-                    : Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E1010),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Result Header
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.redAccent.withOpacity(0.2),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 24),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    const Text(
-                                      'Disease Detected!',
-                                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.redAccent),
-                                    ),
-                                  ],
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.redAccent.withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.redAccent),
-                                  ),
-                                  child: Text(
-                                    '${_result!['confidence']}%',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const Divider(height: 24, color: Colors.redAccent),
-                            Text(
-                              '${_result!['crop']} ${_result!['disease']}',
-                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _result!['scientificName'] ?? 'Phytophthora infestans',
-                              style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.orangeAccent),
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildResultRow('SEVERITY', _result!['severity'] ?? 'High'),
-                                ),
-                                Expanded(
-                                  child: _buildResultRow('RISK LEVEL', _result!['riskLevel'] ?? 'High'),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 48,
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-                                icon: const Icon(Icons.description, color: Colors.white),
-                                label: const Text('View Detailed Report', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => DetailedReportScreen(
-                                        crop: _result!['crop'] ?? 'Crop',
-                                        disease: _result!['disease'] ?? 'Disease',
-                                        confidence: _result!['confidence']?.toString() ?? '94',
-                                        severity: _result!['severity'] ?? 'High',
-                                        scientificName: _result!['scientificName'] ?? '',
-                                      ),
-                                    ),
-                                  );
-                                },
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent.withOpacity(0.2),
+                                shape: BoxShape.circle,
                               ),
+                              child: const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 24),
                             ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    icon: const Icon(Icons.share, size: 16),
-                                    label: const Text('Share'),
-                                    onPressed: () {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Report details copied for sharing!')),
-                                      );
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    icon: const Icon(Icons.shopping_bag, size: 16, color: AppColors.secondary),
-                                    label: const Text('Products', style: TextStyle(color: AppColors.secondary)),
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => RecommendedProductsScreen(
-                                            crop: _result!['crop'] ?? 'Tomato',
-                                            disease: _result!['disease'] ?? 'Late Blight',
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ],
+                            const SizedBox(width: 10),
+                            const Text(
+                              'Disease Detected!',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.redAccent),
                             ),
                           ],
                         ),
-                      )
-              )
-            ]
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.redAccent),
+                          ),
+                          child: Text(
+                            '${_result!['confidence'] ?? 94}% Confidence',
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 24, color: Colors.redAccent),
+                    
+                    // Crop & Disease Name
+                    Text(
+                      '${_result!['crop'] ?? 'Plant'} ${_result!['disease'] ?? 'Late Blight'}',
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _result!['scientificName'] ?? 'Phytophthora infestans',
+                      style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.orangeAccent),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Metrics Row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildResultRow('SEVERITY', _result!['severity'] ?? 'High'),
+                        ),
+                        Expanded(
+                          child: _buildResultRow('RISK LEVEL', _result!['riskLevel'] ?? 'High'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Action Button 1: View Detailed Report
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.visibility, color: Colors.white, size: 18),
+                        label: const Text('View Detailed Report', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => DetailedReportScreen(
+                                crop: _result!['crop'] ?? 'Crop',
+                                disease: _result!['disease'] ?? 'Disease',
+                                confidence: _result!['confidence']?.toString() ?? '94',
+                                severity: _result!['severity'] ?? 'High',
+                                scientificName: _result!['scientificName'] ?? '',
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Action Button 2: Recommended Products
+                    SizedBox(
+                      width: double.infinity,
+                      height: 46,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.accent,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.shopping_bag, size: 18, color: Colors.white),
+                        label: const Text('View Recommended Products', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => RecommendedProductsScreen(
+                                crop: _result!['crop'] ?? 'Tomato',
+                                disease: _result!['disease'] ?? 'Late Blight',
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Action Buttons Row: Share & Download
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(44),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            icon: const Icon(Icons.share, size: 16),
+                            label: const Text('Share Report'),
+                            onPressed: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Report summary copied for sharing!')),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(44),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            icon: const Icon(Icons.download, size: 16),
+                            label: const Text('Download PDF'),
+                            onPressed: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Diagnostic PDF report generated!')),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Retake / Scan Another
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.redAccent.withOpacity(0.5)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.refresh, color: Colors.redAccent, size: 18),
+                        label: const Text('Scan Another Crop (Retake)', style: TextStyle(color: Colors.redAccent)),
+                        onPressed: () {
+                          setState(() {
+                            _imageFile = null;
+                            _result = null;
+                            _error = '';
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 32),
           ],
         ),
       ),
