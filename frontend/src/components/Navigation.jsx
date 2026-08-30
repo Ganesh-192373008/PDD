@@ -87,8 +87,13 @@ export const Navigation = () => {
       {/* Mobile Bottom Navigation */}
       <nav className="mobile-nav">
         <div className="mobile-nav-items">
-          {/* Show top 5 essential tabs on bottom navigation, rest available on menu or subpages */}
-          {navItems.slice(0, 5).map((item) => (
+          {[
+            { path: '/', label: t('dashboard'), icon: LayoutDashboard },
+            { path: '/scan', label: t('scanCrop'), icon: ScanEye },
+            { path: '/community', label: t('community'), icon: Globe },
+            { path: '/ai-assistant', label: t('aiAssistant'), icon: MessageSquare },
+            { path: '/profile', label: t('profile'), icon: User }
+          ].map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
@@ -96,19 +101,10 @@ export const Navigation = () => {
             >
               <div style={{ position: 'relative' }}>
                 <item.icon size={22} />
-                {item.badge && renderBadge(item)}
               </div>
               <span style={{ fontSize: '10px' }}>{item.label}</span>
             </NavLink>
           ))}
-          
-          <NavLink
-            to="/profile"
-            className={({ isActive }) => `mobile-nav-item ${isActive ? 'active' : ''}`}
-          >
-            <User size={22} />
-            <span style={{ fontSize: '10px' }}>{t('profile')}</span>
-          </NavLink>
         </div>
       </nav>
       
