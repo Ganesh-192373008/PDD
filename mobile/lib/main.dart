@@ -62,6 +62,8 @@ class MyApp extends StatelessWidget {
         appBarTheme: const AppBarTheme(
           backgroundColor: AppColors.bgDark,
           elevation: 0,
+          iconTheme: IconThemeData(color: Colors.white),
+          actionsIconTheme: IconThemeData(color: Colors.white),
           titleTextStyle: TextStyle(
             color: Colors.white,
             fontSize: 20,
@@ -1140,16 +1142,27 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     final state = Provider.of<AppState>(context);
     
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_mode == 'login' 
-            ? 'Login' 
-            : _mode == 'register' 
-                ? 'Create Account' 
-                : _mode == 'otp' 
-                    ? 'OTP Verification' 
-                    : 'Forgot Password'),
-      ),
+    return PopScope(
+      canPop: true,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        Navigator.of(context).pop();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            tooltip: 'Back',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          title: Text(_mode == 'login' 
+              ? 'Login' 
+              : _mode == 'register' 
+                  ? 'Create Account' 
+                  : _mode == 'otp' 
+                      ? 'OTP Verification' 
+                      : 'Forgot Password'),
+        ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -1513,7 +1526,7 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -3862,6 +3875,11 @@ class _CartScreenState extends State<CartScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text('Shopping Cart'),
         actions: [
           if (items.isNotEmpty)
@@ -4122,7 +4140,14 @@ class _GovSchemesScreenState extends State<GovSchemesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Government Schemes')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text('Government Schemes'),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : ListView.builder(
@@ -4296,6 +4321,11 @@ class _MarketPricesScreenState extends State<MarketPricesScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text('Mandi Commodity Prices'),
         actions: [
           IconButton(
@@ -4642,7 +4672,14 @@ class _WaterManagementScreenState extends State<WaterManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Water Management & Irrigation')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text('Water Management & Irrigation'),
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
@@ -5033,7 +5070,14 @@ class _FertilizerScheduleScreenState extends State<FertilizerScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Fertilizer Planner & Calendar')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text('Fertilizer Planner & Calendar'),
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(20.0),
@@ -5387,7 +5431,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Alerts Center')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text('Alerts Center'),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : _notifications.isNotEmpty
@@ -5679,6 +5730,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: Text(state.t('community')),
         actions: [
           IconButton(
@@ -5955,6 +6011,11 @@ class DetailedReportScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text('Diagnostic Report'),
         actions: [
           IconButton(
@@ -6194,7 +6255,14 @@ class RecommendedProductsScreen extends StatelessWidget {
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Recommended Care Products')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text('Recommended Care Products'),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -6356,7 +6424,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Activity & Scan History')),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text('Activity & Scan History'),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : Column(
@@ -6936,6 +7011,11 @@ class _DocumentVaultScreenState extends State<DocumentVaultScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text('🔐 Farmer Document Vault'),
         actions: [
           IconButton(
@@ -7269,6 +7349,11 @@ class DocumentViewerScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Back',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: Text(document['documentName'] ?? 'Document Preview'),
         actions: [
           IconButton(
