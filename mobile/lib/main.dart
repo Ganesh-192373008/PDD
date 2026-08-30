@@ -3843,7 +3843,7 @@ class _MarketPricesScreenState extends State<MarketPricesScreen> {
                                   border: Border.all(color: AppColors.border.withOpacity(0.3)),
                                 ),
                                 child: Column(
-                                  children: prices.map((p) {
+                                  children: prices.map<Widget>((p) {
                                     return Padding(
                                       padding: const EdgeInsets.all(10.0),
                                       child: Row(
@@ -3860,6 +3860,38 @@ class _MarketPricesScreenState extends State<MarketPricesScreen> {
                                         ],
                                       ),
                                     );
+                                  }).toList(),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text('Source: ${mkt['source'] ?? 'APMC Market Yard'}', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 44,
+                                child: ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                                  onPressed: () => _getDirections(mkt['directionsUrl'] ?? ''),
+                                  icon: const Icon(Icons.navigation, color: Colors.white, size: 16),
+                                  label: const Text('Get Directions (Google Maps)', style: TextStyle(color: Colors.white)),
+                                ),
+                              )
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 💧 SUB-SCREEN: WATER MANAGEMENT
+// ==========================================
 class WaterManagementScreen extends StatefulWidget {
   const WaterManagementScreen({super.key});
 
