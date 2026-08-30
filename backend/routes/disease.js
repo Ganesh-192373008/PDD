@@ -179,6 +179,7 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
           const recText = groqRec || result.recommendation;
           const confVal = parseFloat((result.confidence * 100).toFixed(2));
 
+          let savedScanId = null;
           try {
             // Save to database
             const newScan = new ScanHistory({
@@ -189,12 +190,14 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
               confidence: confVal,
               recommendation: recText
             });
-            await newScan.save();
+            const savedScan = await newScan.save();
+            savedScanId = savedScan._id;
           } catch (historyErr) {
             console.error('Failed to save scan history:', historyErr);
           }
 
           res.json({
+            _id: savedScanId,
             confidenceTooLow: false,
             classIndex: result.classIndex,
             crop: result.crop,
