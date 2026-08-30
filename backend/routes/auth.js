@@ -370,4 +370,103 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// @route   POST api/auth/otp/send
+// @desc    Send OTP to a mobile phone number
+router.post('/otp/send', async (req, res) => {
+  try {
+    const { countryCode, phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ message: 'Phone number is required.' });
+    }
+
+    const cleanPhone = (countryCode || '') + phone.replace(/\D/g, '');
+    
+    // Generate a 6-digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Store in OtpVerification
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiration
+    const salt = await bcrypt.genSalt(10);
+    const hashedOtp = await bcrypt.hash(otpCode, salt);
+
+    await OtpVerification.deleteMany({ phone: cleanPhone }); // clear existing
+    await OtpVerification.create({
+      phone: cleanPhone,
+      otp: hashedOtp,
+      expiresAt
+    });
+
+    // SMS Gateway Mock / Twilio / SMS sending integration:
+    console.log(`[SMS GATEWAY ONLINE] Sending Verification OTP code ${otpCode} to ${cleanPhone}`);
+
+    res.status(200).json({
+      message: 'OTP sent successfully.',
+      otp: otpCode // return in body so the client app can easily auto-read or display it during testing
+    });
+
+  } catch (error) {
+    console.error('Error sending mobile OTP:', error);
+    res.status(500).json({ message: 'Error sending OTP.' });
+  }
+});
+
+// @route   POST api/auth/otp/verify
+// @desc    Verify OTP code and return JWT token
+router.post('/otp/verify', async (req, res) => {
+  try {
+    const { countryCode, phone, otp } = req.body;
+    if (!phone || !otp) {
+      return res.status(400).json({ message: 'Phone number and OTP are required.' });
+    }
+
+    const cleanPhone = (countryCode || '') + phone.replace(/\D/g, '');
+    const otpRecords = await OtpVerification.find({ phone: cleanPhone }).sort({ createdAt: -1 });
+
+    if (otpRecords.length === 0) {
+      return res.status(400).json({ message: 'OTP has expired or is invalid.' });
+    }
+
+    const latestOtpRecord = otpRecords[0];
+
+    if (latestOtpRecord.expiresAt < new Date()) {
+      await OtpVerification.deleteMany({ phone: cleanPhone });
+      return res.status(400).json({ message: 'OTP has expired.' });
+    }
+
+    const isMatch = await bcrypt.compare(otp, latestOtpRecord.otp);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid OTP code.' });
+    }
+
+    // Clean up used OTP
+    await OtpVerification.deleteMany({ phone: cleanPhone });
+
+    // Find or create User
+    let user = await User.findOne({ phone: cleanPhone });
+    if (!user) {
+      const shortPhone = cleanPhone.slice(-4);
+      user = await User.create({
+        name: `Farmer ${shortPhone}`,
+        phone: cleanPhone,
+        preferredLanguage: 'en'
+      });
+    }
+
+    const token = generateToken(user._id);
+
+    res.status(200).json({
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        phone: user.phone
+      }
+    });
+
+  } catch (error) {
+    console.error('Error verifying mobile OTP:', error);
+    res.status(500).json({ message: 'Error verifying OTP.' });
+  }
+});
+
 module.exports = router;
