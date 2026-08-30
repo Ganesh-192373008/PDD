@@ -19,6 +19,14 @@ const CommunityMessageSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  category: {
+    type: String,
+    default: 'General'
+  },
+  imageUrl: {
+    type: String,
+    default: ''
+  },
   likes: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

@@ -22,7 +22,7 @@ router.get('/', protect, async (req, res) => {
 // @desc    Post a new community message
 router.post('/', protect, async (req, res) => {
   try {
-    const { content } = req.body;
+    const { content, category, imageUrl } = req.body;
     if (!content || content.trim() === '') {
       return res.status(400).json({ message: 'Message content cannot be empty.' });
     }
@@ -31,7 +31,9 @@ router.post('/', protect, async (req, res) => {
       userId: req.user._id,
       userName: req.user.name || 'Anonymous Farmer',
       userLocation: req.user.location?.address || 'Global',
-      content: content.trim()
+      content: content.trim(),
+      category: category || 'General',
+      imageUrl: imageUrl || ''
     });
 
     await newMessage.save();
@@ -39,6 +41,51 @@ router.post('/', protect, async (req, res) => {
   } catch (error) {
     console.error('Error sending community message:', error);
     res.status(500).json({ message: 'Server error sending message.' });
+  }
+});
+
+// @route   PUT api/community/:id
+// @desc    Edit a community message
+router.put('/:id', protect, async (req, res) => {
+  try {
+    const post = await CommunityMessage.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found.' });
+    }
+    if (post.userId.toString() !== req.user._id.toString()) {
+      return res.status(401).json({ message: 'Not authorized to edit this post.' });
+    }
+
+    const { content, category, imageUrl } = req.body;
+    post.content = content !== undefined ? content.trim() : post.content;
+    post.category = category !== undefined ? category : post.category;
+    post.imageUrl = imageUrl !== undefined ? imageUrl : post.imageUrl;
+
+    await post.save();
+    res.json(post);
+  } catch (error) {
+    console.error('Error updating community message:', error);
+    res.status(500).json({ message: 'Server error updating message.' });
+  }
+});
+
+// @route   DELETE api/community/:id
+// @desc    Delete a community message
+router.delete('/:id', protect, async (req, res) => {
+  try {
+    const post = await CommunityMessage.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found.' });
+    }
+    if (post.userId.toString() !== req.user._id.toString()) {
+      return res.status(401).json({ message: 'Not authorized to delete this post.' });
+    }
+
+    await post.deleteOne();
+    res.json({ message: 'Post deleted successfully.' });
+  } catch (error) {
+    console.error('Error deleting community message:', error);
+    res.status(500).json({ message: 'Server error deleting message.' });
   }
 });
 
