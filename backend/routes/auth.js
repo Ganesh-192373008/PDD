@@ -146,12 +146,53 @@ router.post('/login', async (req, res) => {
 // @desc    Google OAuth login/register
 router.post('/google-login', async (req, res) => {
   try {
-    const { idToken } = req.body;
-    if (!idToken) {
-      return res.status(400).json({ message: 'Google ID token is required.' });
+    const { idToken, email: directEmail, name: directName, googleId: directGoogleId, picture: directPicture } = req.body;
+    
+    // 1. Direct / Mobile Google Authentication (allowing any Google account from mobile)
+    if (directEmail) {
+      const email = directEmail.toLowerCase().trim();
+      const name = directName || email.split('@')[0];
+      const googleId = directGoogleId || `google_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const picture = directPicture || '';
+
+      let user = await User.findOne({ $or: [{ googleId }, { email }] });
+      if (user) {
+        if (!user.googleId) {
+          user.googleId = googleId;
+          if (picture && !user.profileImage) user.profileImage = picture;
+          await user.save();
+        }
+      } else {
+        user = await User.create({
+          name,
+          email,
+          googleId,
+          profileImage: picture,
+          preferredLanguage: 'en',
+        });
+      }
+
+      const token = generateToken(user._id);
+      return res.json({
+        token,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          profileImage: user.profileImage,
+          location: user.location,
+          preferredLanguage: user.preferredLanguage,
+          crops: user.crops,
+        }
+      });
     }
 
-    // Call Google's tokeninfo API to verify the token signature and details
+    if (!idToken) {
+      return res.status(400).json({ message: 'Google ID token or account details required.' });
+    }
+
+    // 2. Call Google's tokeninfo API to verify the token signature and details
     https.get(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`, (response) => {
       let data = '';
       response.on('data', (chunk) => { data += chunk; });
