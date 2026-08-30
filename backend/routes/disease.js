@@ -222,7 +222,7 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
           }
         ],
         temperature: 0.1,
-        max_tokens: 5
+        max_tokens: 150
       });
 
       const https = require('https');
@@ -249,7 +249,14 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
               const resJson = JSON.parse(rawData);
               const answer = resJson.choices[0].message.content.trim().toUpperCase();
               
-              if (answer.includes('NO')) {
+              let answerText = answer;
+              if (answerText.includes('</THINK>')) {
+                answerText = answerText.split('</THINK>')[1].trim();
+              }
+              
+              fs.appendFileSync(logFile, `[${new Date().toISOString()}] Parsed Vision Answer: ${answerText}\n`);
+
+              if (answerText.includes('NO')) {
                 // Delete image file and return error
                 if (fs.existsSync(imagePath)) {
                   fs.unlinkSync(imagePath);
