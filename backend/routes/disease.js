@@ -241,7 +241,7 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
           }
         ],
         temperature: 0.1,
-        max_tokens: 150
+        max_tokens: 500
       });
 
       const https = require('https');
