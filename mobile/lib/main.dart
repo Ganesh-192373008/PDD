@@ -2870,8 +2870,91 @@ class _ScanTabState extends State<ScanTab> {
               ),
             ],
 
-            // 4. DIAGNOSIS RESULTS
-            if (_result != null && !_loading) ...[
+            // 4. NON-PLANT / UNRECOGNIZED IMAGE WARNING
+            if (_result != null && !_loading && (_result!['isPlant'] == false || _result!['confidenceTooLow'] == true || _result!['success'] == false)) ...[
+              const SizedBox(height: 20),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF241C10),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.amber, width: 1.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.eco_outlined, color: Colors.amber, size: 28),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'No Crop Leaf Detected',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.amber),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _result!['message'] ?? 'AgroAssist only scans agricultural crop leaves and plant foliage. Please snap a clear, close-up photo of an affected leaf.',
+                      style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black38,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                      ),
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('💡 How to take a valid scan:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amberAccent, fontSize: 12)),
+                          SizedBox(height: 4),
+                          Text('1. Point the camera directly at the plant leaf.', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                          Text('2. Make sure the leaf fills most of the frame.', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                          Text('3. Ensure adequate natural daylight and avoid blur.', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                            icon: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+                            label: const Text('Scan Leaf', style: TextStyle(color: Colors.white)),
+                            onPressed: () => _pickImage(ImageSource.camera),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.photo_library, size: 18),
+                            label: const Text('Gallery'),
+                            onPressed: () => _pickImage(ImageSource.gallery),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // 5. VALID PLANT DIAGNOSIS RESULTS
+            if (_result != null && !_loading && _result!['isPlant'] != false && _result!['confidenceTooLow'] != true && _result!['success'] != false) ...[
               const SizedBox(height: 20),
               Container(
                 width: double.infinity,
@@ -6394,7 +6477,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
         headers: {'Authorization': 'Bearer ${state.token}'},
       );
       if (resActs.statusCode == 200) {
-        _activities = jsonDecode(resActs.body);
+        final dynamic data = jsonDecode(resActs.body);
+        if (data is Map<String, dynamic>) {
+          if (data['activities'] is List) {
+            _activities = List<dynamic>.from(data['activities']);
+          }
+          if (data['scans'] is List) {
+            _scans = List<dynamic>.from(data['scans']);
+          }
+        } else if (data is List) {
+          _activities = List<dynamic>.from(data);
+        }
       }
 
       final resScans = await http.get(
@@ -6402,7 +6495,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         headers: {'Authorization': 'Bearer ${state.token}'},
       );
       if (resScans.statusCode == 200) {
-        _scans = jsonDecode(resScans.body);
+        final dynamic scanData = jsonDecode(resScans.body);
+        if (scanData is List) {
+          _scans = List<dynamic>.from(scanData);
+        }
       }
     } catch (e) {
       debugPrint('History fetch error: $e');
@@ -6414,8 +6510,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   String _formatDate(String? dateStr) {
     if (dateStr == null) return 'Recently';
     try {
-      final dt = DateTime.parse(dateStr);
-      return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+      final dt = DateTime.parse(dateStr).toLocal();
+      return '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     } catch (_) {
       return 'Recently';
     }
@@ -6431,6 +6527,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: const Text('Activity & Scan History'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh History',
+            onPressed: _fetchHistoryData,
+          )
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))

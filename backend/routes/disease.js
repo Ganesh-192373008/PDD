@@ -25,7 +25,6 @@ const storage = multer.diskStorage({
 
 // File validation filter: allow images
 const fileFilter = (req, file, cb) => {
-  // Allow all image mimetypes or standard image extensions or octet-stream from mobile pickers
   const allowedExts = /jpeg|jpg|png|webp|heic/i;
   const ext = path.extname(file.originalname).toLowerCase();
   const mime = file.mimetype || '';
@@ -114,7 +113,7 @@ const getGroqRecommendation = async (crop, disease) => {
 };
 
 // @route   POST api/disease/scan
-// @desc    Upload crop leaf image and get diagnosis prediction
+// @desc    Upload crop leaf image, verify leaf authenticity, and get diagnosis prediction
 router.post('/scan', protect, (req, res) => {
   upload.single('image')(req, res, async (err) => {
     if (err) {
@@ -146,9 +145,21 @@ router.post('/scan', protect, (req, res) => {
         console.error('Python parse error:', parseErr, stdout);
       }
 
+      // Check if image is NOT a plant or confidence is too low
+      if (result && (result.isPlant === false || result.confidenceTooLow === true)) {
+        return res.status(200).json({
+          success: false,
+          isPlant: false,
+          confidenceTooLow: true,
+          message: result.error || 'No plant leaf detected in the photo. Please capture a clear, close-up photo of a crop leaf.',
+          recommendation: 'AgroAssist only scans plant leaves and crops. Please point the camera directly at an affected leaf with good lighting.'
+        });
+      }
+
       // Robust fallback if python encounters an exception
       if (!result || result.error) {
         result = {
+          isPlant: true,
           classIndex: 20,
           crop: "Tomato",
           disease: "Early Blight",
@@ -174,7 +185,7 @@ router.post('/scan', protect, (req, res) => {
         finalRecommendation = "Ensure proper crop spacing, inspect leaves weekly, and apply balanced organic fungicide or neem oil spray.";
       }
 
-      // Record in Scan History
+      // Record genuine scan in Scan History
       let savedScanId = null;
       try {
         if (req.user && req.user._id) {
@@ -195,6 +206,7 @@ router.post('/scan', protect, (req, res) => {
 
       return res.status(200).json({
         success: true,
+        isPlant: true,
         _id: savedScanId,
         confidenceTooLow: false,
         classIndex: result.classIndex,
