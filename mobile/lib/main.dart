@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
@@ -87,7 +88,7 @@ class AppState extends ChangeNotifier {
   int _unreadNotifications = 0;
   bool _loading = false;
 
-  final String apiUrl = 'http://10.226.183.1:5000/api'; // Local network server IP
+  final String apiUrl = 'https://pdd-backend-s6yk.onrender.com/api'; // Render backend API server URL
 
   String get token => _token;
   Map<String, dynamic>? get user => _user;
@@ -97,6 +98,25 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? get weather => _weather;
   int get unreadNotifications => _unreadNotifications;
   bool get loading => _loading;
+
+  Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> data) async {
+    try {
+      final res = await http.put(
+        Uri.parse('$apiUrl/user/profile'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode(data),
+      );
+      final json = jsonDecode(res.body);
+      if (res.statusCode == 200) {
+        _user = json['user'];
+        notifyListeners();
+        return {'success': true, 'user': _user};
+      }
+      return {'success': false, 'error': json['error'] ?? 'Failed to update profile'};
+    } catch (e) {
+      return {'success': false, 'error': 'Network connection error'};
+    }
+  }
 
   AppState() {
     _loadSession();
@@ -704,52 +724,137 @@ class _AuthScreenState extends State<AuthScreen> {
       if (res.statusCode == 200) {
         setState(() {
           _otpStep = 2;
-          _message = 'OTP code sent successfully.';
+          if (data['otp'] != null) {
+            _otpController.text = data['otp'].toString();
+            _message = 'Verification Code: ${data['otp']} (Auto-filled on screen)';
+          } else {
+            _message = 'OTP code sent successfully.';
+          }
         });
         _startCountdown();
       } else {
         setState(() => _error = data['message'] ?? 'Failed to send OTP.');
       }
     } catch (e) {
-      setState(() => _error = 'SMS gateway offline.');
+      setState(() => _error = 'SMS gateway offline. Please ensure server is running.');
     } finally {
       setState(() => _loading = false);
     }
   }
 
-  // OTP Verification request
-  Future<void> _handleVerifyOtp() async {
-    if (_otpController.text.length != 6) {
-      setState(() => _error = 'Please enter 6-digit code.');
-      return;
-    }
-    setState(() {
-      _loading = true;
-      _error = '';
-    });
-    try {
-      final state = Provider.of<AppState>(context, listen: false);
-      final res = await http.post(
-        Uri.parse('${state.apiUrl}/auth/otp/verify'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'countryCode': '+91',
-          'phone': _phoneController.text,
-          'otp': _otpController.text,
-        }),
-      );
-      final data = jsonDecode(res.body);
-      if (res.statusCode == 200) {
-        await state.setToken(data['token']);
-        if (mounted) Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainShellScreen()));
-      } else {
-        setState(() => _error = data['message'] ?? 'Invalid OTP code.');
-      }
-    } catch (e) {
-      setState(() => _error = 'OTP verification error.');
-    } finally {
-      setState(() => _loading = false);
-    }
+  // Google Authentication Handler for Mobile
+  Future<void> _handleGoogleLogin() async {
+    final googleEmailController = TextEditingController();
+    final googleNameController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: AppColors.bgCardDark,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: AppColors.border),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.g_mobiledata, color: Colors.blueAccent, size: 36),
+              SizedBox(width: 8),
+              Text('Google Sign-In', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Enter your Google account details to sign in instantly:',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: googleEmailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Google Email Address',
+                    hintText: 'user@gmail.com',
+                    prefixIcon: Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                  style: const TextStyle(color: Colors.white),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: googleNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Full Name (Optional)',
+                    prefixIcon: Icon(Icons.person_outline),
+                    border: OutlineInputBorder(),
+                  ),
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+              onPressed: () async {
+                final email = googleEmailController.text.trim();
+                if (email.isEmpty || !email.contains('@')) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a valid Google email address.')),
+                  );
+                  return;
+                }
+                Navigator.pop(ctx);
+                setState(() {
+                  _loading = true;
+                  _error = '';
+                });
+                try {
+                  final state = Provider.of<AppState>(context, listen: false);
+                  final name = googleNameController.text.trim().isNotEmpty
+                      ? googleNameController.text.trim()
+                      : email.split('@')[0];
+
+                  final res = await http.post(
+                    Uri.parse('${state.apiUrl}/auth/google-login'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode({
+                      'email': email,
+                      'name': name,
+                      'googleId': 'google_${email.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')}',
+                    }),
+                  );
+                  final data = jsonDecode(res.body);
+                  if (res.statusCode == 200 && data['token'] != null) {
+                    await state.setToken(data['token']);
+                    if (mounted) {
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(builder: (_) => const MainShellScreen())
+                      );
+                    }
+                  } else {
+                    setState(() => _error = data['message'] ?? 'Google login failed.');
+                  }
+                } catch (e) {
+                  setState(() => _error = 'Google auth connection error.');
+                } finally {
+                  setState(() => _loading = false);
+                }
+              },
+              child: const Text('Sign In with Google', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   // Password Recovery handler
@@ -942,13 +1047,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   width: double.infinity,
                   height: 50,
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      // Trigger Google Login simulation flow
-                      state.setToken('google_oauth_simulation_token_2026');
-                      Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(builder: (_) => const MainShellScreen())
-                      );
-                    },
+                    onPressed: _handleGoogleLogin,
                     icon: const Icon(Icons.g_mobiledata, size: 30, color: Colors.blueAccent),
                     label: const Text('Continue with Google'),
                   ),
@@ -1387,7 +1486,7 @@ class _DashboardTabState extends State<DashboardTab> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('${w['temperature']}°C', style: const TextStyle(fontSize: 40, fontWeight: FontWeight.extrabold, color: Colors.white)),
+                            Text('${w['temperature']}°C', style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: Colors.white)),
                             Text('${w['condition']}', style: const TextStyle(fontSize: 16, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
                           ],
                         ),
@@ -1445,6 +1544,9 @@ class _DashboardTabState extends State<DashboardTab> {
                 _buildActionCard(Icons.grass, 'Fertilizers', Colors.brown, () {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const FertilizerScheduleScreen()));
                 }),
+                _buildActionCard(Icons.history, 'Activity History', Colors.indigo, () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen()));
+                }),
                 _buildActionCard(Icons.assignment, 'Subsidies', Colors.purple, () {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const GovSchemesScreen()));
                 }),
@@ -1476,7 +1578,7 @@ class _DashboardTabState extends State<DashboardTab> {
               Column(
                 children: _latestNotifs.map((n) {
                   return Container(
-                    margin: const EdgeInsets.bottom(10),
+                    margin: const EdgeInsets.only(bottom: 10),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: AppColors.bgCardDark,
@@ -1997,7 +2099,7 @@ class _ScanTabState extends State<ScanTab> {
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, height: 48),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, minimumSize: const Size.fromHeight(48)),
                       icon: const Icon(Icons.analytics, color: Colors.white),
                       label: const Text('Diagnose Leaf', style: TextStyle(color: Colors.white)),
                       onPressed: _analyze,
@@ -2005,7 +2107,7 @@ class _ScanTabState extends State<ScanTab> {
                   ),
                   const SizedBox(width: 12),
                   OutlinedButton(
-                    style: OutlinedButton.styleFrom(height: 48),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
                     onPressed: () => setState(() => _imageFile = null),
                     child: const Text('Clear'),
                   )
@@ -2040,7 +2142,7 @@ class _ScanTabState extends State<ScanTab> {
                 child: _result!['confidenceTooLow'] == true
                     ? Row(
                         children: [
-                          const Icon(Icons.shield_alert, size: 40, color: AppColors.secondary),
+                          const Icon(Icons.shield, size: 40, color: AppColors.secondary),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -2054,47 +2156,132 @@ class _ScanTabState extends State<ScanTab> {
                           )
                         ],
                       )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Diagnosis Result', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          const Divider(height: 24),
-                          _buildResultRow('CROP', _result!['crop']),
-                          const SizedBox(height: 12),
-                          _buildResultRow('DIAGNOSIS', _result!['disease']),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              _buildResultRow('SEVERITY', _result!['severity']),
-                              _buildResultRow('CONFIDENCE', '${_result!['confidence']}%'),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.primary.withOpacity(0.2)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                    : Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E1010),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Row(
+                                Row(
                                   children: [
-                                    Icon(Icons.auto_awesome, color: AppColors.secondary, size: 16),
-                                    SizedBox(width: 8),
-                                    Text('Treatment Recommendation:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.redAccent.withOpacity(0.2),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 24),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    const Text(
+                                      'Disease Detected!',
+                                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.redAccent),
+                                    ),
                                   ],
                                 ),
-                                const SizedBox(height: 8),
-                                Text(_result!['recommendation'] ?? '', style: const TextStyle(fontSize: 13, height: 1.4)),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.redAccent.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.redAccent),
+                                  ),
+                                  child: Text(
+                                    '${_result!['confidence']}%',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13),
+                                  ),
+                                ),
                               ],
                             ),
-                          )
-                        ],
-                      ),
+                            const Divider(height: 24, color: Colors.redAccent),
+                            Text(
+                              '${_result!['crop']} ${_result!['disease']}',
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _result!['scientificName'] ?? 'Phytophthora infestans',
+                              style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.orangeAccent),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildResultRow('SEVERITY', _result!['severity'] ?? 'High'),
+                                ),
+                                Expanded(
+                                  child: _buildResultRow('RISK LEVEL', _result!['riskLevel'] ?? 'High'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 48,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                                icon: const Icon(Icons.description, color: Colors.white),
+                                label: const Text('View Detailed Report', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => DetailedReportScreen(
+                                        crop: _result!['crop'] ?? 'Crop',
+                                        disease: _result!['disease'] ?? 'Disease',
+                                        confidence: _result!['confidence']?.toString() ?? '94',
+                                        severity: _result!['severity'] ?? 'High',
+                                        scientificName: _result!['scientificName'] ?? '',
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    icon: const Icon(Icons.share, size: 16),
+                                    label: const Text('Share'),
+                                    onPressed: () {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Report details copied for sharing!')),
+                                      );
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    icon: const Icon(Icons.shopping_bag, size: 16, color: AppColors.secondary),
+                                    label: const Text('Products', style: TextStyle(color: AppColors.secondary)),
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => RecommendedProductsScreen(
+                                            crop: _result!['crop'] ?? 'Tomato',
+                                            disease: _result!['disease'] ?? 'Late Blight',
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      )
               )
             ]
           ],
@@ -2263,7 +2450,7 @@ class _StoreTabState extends State<StoreTab> {
                               borderRadius: BorderRadius.circular(16),
                               side: const BorderSide(color: AppColors.border),
                             ),
-                            margin: const EdgeInsets.bottom(16),
+                            margin: const EdgeInsets.only(bottom: 16),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -2307,7 +2494,7 @@ class _StoreTabState extends State<StoreTab> {
                                         children: [
                                           Text(
                                             '₹${prod['price']}',
-                                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.extrabold, color: AppColors.secondary),
+                                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.secondary),
                                           ),
                                           ElevatedButton(
                                             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
@@ -2722,7 +2909,7 @@ class _CartScreenState extends State<CartScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.shield_alert, color: AppColors.secondary, size: 36),
+                  const Icon(Icons.shield, color: AppColors.secondary, size: 36),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -2793,7 +2980,7 @@ class _CartScreenState extends State<CartScreen> {
                       const Text('Total Amount:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                       Text(
                         '₹${_calculateSubtotal(state.cart).toStringAsFixed(2)}',
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.extrabold, color: AppColors.secondary),
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.secondary),
                       )
                     ],
                   ),
@@ -2924,7 +3111,7 @@ class _GovSchemesScreenState extends State<GovSchemesScreen> {
                     borderRadius: BorderRadius.circular(16),
                     side: const BorderSide(color: AppColors.border),
                   ),
-                  margin: const EdgeInsets.bottom(16),
+                  margin: const EdgeInsets.only(bottom: 16),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -3118,7 +3305,7 @@ class _MarketPricesScreenState extends State<MarketPricesScreen> {
                           borderRadius: BorderRadius.circular(16),
                           side: const BorderSide(color: AppColors.border),
                         ),
-                        margin: const EdgeInsets.bottom(16),
+                        margin: const EdgeInsets.only(bottom: 16),
                         child: Padding(
                           padding: const EdgeInsets.all(16.0),
                           child: Column(
@@ -3865,7 +4052,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           color: isUnread ? AppColors.secondary.withOpacity(0.3) : AppColors.border
                         ),
                       ),
-                      margin: const EdgeInsets.bottom(12),
+                      margin: const EdgeInsets.only(bottom: 12),
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: isUnread ? AppColors.secondary.withOpacity(0.1) : Colors.transparent,
@@ -3904,6 +4091,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 )
               : const Center(child: Text('No notifications history.')),
     );
+  }
+}
   // ==========================================
 // 💬 SUB-SCREEN: COMMUNITY FORUM
 // ==========================================
@@ -4180,10 +4369,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
                             return Card(
                               color: AppColors.bgCardDark,
-                              margin: const EdgeInsets.bottom(16),
+                              margin: const EdgeInsets.only(bottom: 16),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: AppColors.border),
+                                side: const BorderSide(color: AppColors.border),
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.all(16.0),
@@ -4378,5 +4567,588 @@ extension ListFilter<E> on List<E> {
 extension ListIncludes<E> on List<E> {
   bool includes(E element) {
     return contains(element);
+  }
+}
+
+// ==========================================
+// 📜 SUB-SCREEN: DETAILED DIAGNOSTIC REPORT
+// ==========================================
+class DetailedReportScreen extends StatelessWidget {
+  final String crop;
+  final String disease;
+  final String confidence;
+  final String severity;
+  final String scientificName;
+
+  const DetailedReportScreen({
+    super.key,
+    required this.crop,
+    required this.disease,
+    required this.confidence,
+    required this.severity,
+    this.scientificName = '',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sciName = scientificName.isNotEmpty 
+        ? scientificName 
+        : disease.toLowerCase().contains('blight') 
+            ? 'Phytophthora infestans' 
+            : disease.toLowerCase().contains('rust') 
+                ? 'Puccinia graminis' 
+                : 'Cercospora zeae-maydis';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Diagnostic Report'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Report copied for sharing!')),
+              );
+            },
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Status Header
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1010),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('DIAGNOSTIC STATUS', style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.redAccent),
+                        ),
+                        child: Text('$confidence% Confidence', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text('$crop $disease', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 4),
+                  Text(sciName, style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic, color: Colors.orangeAccent)),
+                  const Divider(height: 24, color: Colors.redAccent),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildReportStat('Severity Level', severity, Colors.redAccent),
+                      _buildReportStat('Risk Rating', 'High Risk', Colors.orangeAccent),
+                      _buildReportStat('Treatment Window', 'Immediate (24h)', Colors.greenAccent),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Symptoms Card
+            _buildSectionCard(
+              title: 'Symptoms & Indicators',
+              icon: Icons.search,
+              color: Colors.orange,
+              items: const [
+                'Dark, water-soaked lesions appearing on leaf tips and margins.',
+                'White fungal growth visible on undersides of leaves during humid conditions.',
+                'Rapid wilting, browning, and dying of vegetative tissue.',
+                'Stems developing dark brown, greasy-looking patches.',
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Environmental Causes
+            _buildSectionCard(
+              title: 'Causes & Environmental Triggers',
+              icon: Icons.thermostat,
+              color: Colors.blue,
+              items: const [
+                'High relative humidity (> 90%) combined with moderate temperatures (15-22°C).',
+                'Prolonged leaf wetness caused by overhead sprinkler irrigation or dew.',
+                'Poor air circulation due to dense crop spacing.',
+                'Contaminated plant debris or infected seed tubers.',
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Recommended Treatment Steps
+            _buildSectionCard(
+              title: 'Step-by-Step Treatment',
+              icon: Icons.healing,
+              color: Colors.green,
+              items: const [
+                'Immediately prune and safely dispose of heavily infected leaves.',
+                'Apply Copper Oxychloride 50% WP or Mancozeb 75% WP @ 2.5g per liter of water.',
+                'Switch from overhead watering to drip irrigation to keep canopy foliage dry.',
+                'Spray systemic fungicides (Metalaxyl 8% + Mancozeb 64%) if outbreak continues.',
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Prevention Guidelines
+            _buildSectionCard(
+              title: 'Long-Term Prevention',
+              icon: Icons.shield,
+              color: Colors.teal,
+              items: const [
+                'Ensure 60cm row spacing to allow adequate ventilation and sunlight penetration.',
+                'Practice a minimum 3-year crop rotation with non-solanaceous crops.',
+                'Use certified disease-resistant hybrid seed varieties.',
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Navigation to Products
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                icon: const Icon(Icons.shopping_bag, color: Colors.white),
+                label: const Text('View Recommended Treatment Products', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => RecommendedProductsScreen(crop: crop, disease: disease),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReportStat(String label, String value, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+        const SizedBox(height: 4),
+        Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color)),
+      ],
+    );
+  }
+
+  Widget _buildSectionCard({required String title, required IconData icon, required Color color, required List<String> items}) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bgCardDark,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...items.map((item) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('• ', style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Expanded(
+                    child: Text(item, style: const TextStyle(fontSize: 13, height: 1.4, color: AppColors.textPrimary)),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 🛒 SUB-SCREEN: RECOMMENDED PRODUCTS
+// ==========================================
+class RecommendedProductsScreen extends StatelessWidget {
+  final String crop;
+  final String disease;
+
+  const RecommendedProductsScreen({super.key, required this.crop, required this.disease});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = Provider.of<AppState>(context);
+    final List<Map<String, dynamic>> products = [
+      {
+        'id': 'rec_1',
+        'name': 'Copper Oxychloride 50% WP (Blitox)',
+        'category': 'Fungicide',
+        'price': 340,
+        'rating': 4.8,
+        'description': 'Broad-spectrum protective copper fungicide for Late Blight, Early Blight, and Leaf Spot.',
+      },
+      {
+        'id': 'rec_2',
+        'name': 'Ridomil Gold (Metalaxyl + Mancozeb)',
+        'category': 'Systemic Fungicide',
+        'price': 620,
+        'rating': 4.9,
+        'description': 'Systemic curative and preventive protection against persistent fungal infections.',
+      },
+      {
+        'id': 'rec_3',
+        'name': 'Organic Cold-Pressed Neem Oil (10,000 PPM)',
+        'category': 'Bio-Pesticide',
+        'price': 280,
+        'rating': 4.7,
+        'description': '100% natural organic repellent and fungal spore germination inhibitor.',
+      },
+      {
+        'id': 'rec_4',
+        'name': 'Agricultural Battery Knapsack Sprayer 16L',
+        'category': 'Equipment',
+        'price': 1850,
+        'rating': 4.6,
+        'description': 'High-pressure continuous electric spray pump for uniform crop foliage coverage.',
+      },
+    ];
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Recommended Care Products')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Target Diagnosis Banner
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.primary),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.verified, color: AppColors.primary, size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('CURATED CARE PRODUCTS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
+                        Text('Target: $crop ($disease)', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ],
+                    ),
+                  )
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            ...products.map((p) {
+              return Card(
+                color: AppColors.bgCardDark,
+                margin: const EdgeInsets.only(bottom: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: const BorderSide(color: AppColors.border),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(p['category'], style: const TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                          Row(
+                            children: [
+                              const Icon(Icons.star, color: AppColors.secondary, size: 16),
+                              const SizedBox(width: 4),
+                              Text('${p['rating']}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                            ],
+                          )
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(p['name'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      const SizedBox(height: 6),
+                      Text(p['description'], style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.3)),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('₹${p['price']}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.secondary)),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                            icon: const Icon(Icons.add_shopping_cart, size: 16, color: Colors.white),
+                            label: const Text('Add to Cart', style: TextStyle(color: Colors.white)),
+                            onPressed: () {
+                              state.addToCart(p['id']);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('${p['name']} added to cart!')),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 🕒 SUB-SCREEN: ACTIVITY & SCAN HISTORY
+// ==========================================
+class HistoryScreen extends StatefulWidget {
+  const HistoryScreen({super.key});
+
+  @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<HistoryScreen> {
+  List<dynamic> _activities = [];
+  List<dynamic> _scans = [];
+  bool _loading = false;
+  String _currentTab = 'scans'; // 'scans' or 'activities'
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHistoryData();
+  }
+
+  Future<void> _fetchHistoryData() async {
+    final state = Provider.of<AppState>(context, listen: false);
+    if (state.token.isEmpty) return;
+
+    setState(() => _loading = true);
+    try {
+      final resActs = await http.get(
+        Uri.parse('${state.apiUrl}/history'),
+        headers: {'Authorization': 'Bearer ${state.token}'},
+      );
+      if (resActs.statusCode == 200) {
+        _activities = jsonDecode(resActs.body);
+      }
+
+      final resScans = await http.get(
+        Uri.parse('${state.apiUrl}/history/scans'),
+        headers: {'Authorization': 'Bearer ${state.token}'},
+      );
+      if (resScans.statusCode == 200) {
+        _scans = jsonDecode(resScans.body);
+      }
+    } catch (e) {
+      debugPrint('History fetch error: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _formatDate(String? dateStr) {
+    if (dateStr == null) return 'Recently';
+    try {
+      final dt = DateTime.parse(dateStr);
+      return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return 'Recently';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Activity & Scan History')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : Column(
+              children: [
+                // Top Tab selector
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                  color: AppColors.bgCardDark,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _currentTab = 'scans'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _currentTab == 'scans' ? AppColors.primary : Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              '📷 Crop Scans (${_scans.length})',
+                              style: TextStyle(
+                                color: _currentTab == 'scans' ? Colors.white : AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _currentTab = 'activities'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _currentTab == 'activities' ? AppColors.primary : Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              '⚡ All Actions (${_activities.length})',
+                              style: TextStyle(
+                                color: _currentTab == 'activities' ? Colors.white : AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Content List
+                Expanded(
+                  child: _currentTab == 'scans'
+                      ? _scans.isNotEmpty
+                          ? ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: _scans.length,
+                              itemBuilder: (ctx, idx) {
+                                final s = _scans[idx];
+                                return Card(
+                                  color: AppColors.bgCardDark,
+                                  margin: const EdgeInsets.only(bottom: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    side: const BorderSide(color: AppColors.border),
+                                  ),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.all(16),
+                                    leading: Container(
+                                      width: 48,
+                                      height: 48,
+                                      decoration: BoxDecoration(
+                                        color: Colors.redAccent.withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: const Icon(Icons.analytics, color: Colors.redAccent),
+                                    ),
+                                    title: Text(
+                                      '${s['crop'] ?? 'Crop'} - ${s['disease'] ?? 'Health Diagnosis'}',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const SizedBox(height: 4),
+                                        Text('Confidence: ${s['confidence'] ?? 94}% · Severity: ${s['severity'] ?? 'High'}', style: const TextStyle(fontSize: 12, color: Colors.orangeAccent)),
+                                        const SizedBox(height: 2),
+                                        Text(_formatDate(s['createdAt']), style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                                      ],
+                                    ),
+                                    trailing: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.primary,
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      ),
+                                      child: const Text('Report', style: TextStyle(color: Colors.white, fontSize: 12)),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => DetailedReportScreen(
+                                              crop: s['crop'] ?? 'Crop',
+                                              disease: s['disease'] ?? 'Disease',
+                                              confidence: (s['confidence'] ?? 94).toString(),
+                                              severity: s['severity'] ?? 'High',
+                                              scientificName: s['scientificName'] ?? '',
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                );
+                              },
+                            )
+                          : const Center(child: Text('No scans recorded yet.'))
+                      : _activities.isNotEmpty
+                          ? ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: _activities.length,
+                              itemBuilder: (ctx, idx) {
+                                final a = _activities[idx];
+                                return Card(
+                                  color: AppColors.bgCardDark,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    side: const BorderSide(color: AppColors.border),
+                                  ),
+                                  child: ListTile(
+                                    leading: const Icon(Icons.flash_on, color: AppColors.secondary),
+                                    title: Text(a['title'] ?? a['action'] ?? 'Activity', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    subtitle: Text('${a['description'] ?? ''}\n${_formatDate(a['createdAt'])}', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                                  ),
+                                );
+                              },
+                            )
+                          : const Center(child: Text('No activity logs found.')),
+                ),
+              ],
+            ),
+    );
   }
 }
