@@ -68,13 +68,19 @@ router.get('/', protect, async (req, res) => {
 // @desc    Create a new watering schedule
 router.post('/', protect, async (req, res) => {
   try {
-    const { crop, fieldSize, soilType, plantingDate, irrigationMethod, remindersEnabled, wateringTime } = req.body;
+    const { crop, fieldSize, soilType, plantingDate, irrigationMethod, remindersEnabled, wateringTime, nextWatering } = req.body;
 
     if (!crop || !fieldSize || !soilType || !plantingDate || !irrigationMethod) {
       return res.status(400).json({ message: 'All inputs are required.' });
     }
 
-    const { nextWatering } = calculateWateringMetrics(crop, soilType, parseFloat(fieldSize));
+    let nextWateringDate;
+    if (nextWatering) {
+      nextWateringDate = new Date(nextWatering);
+    } else {
+      const metrics = calculateWateringMetrics(crop, soilType, parseFloat(fieldSize));
+      nextWateringDate = metrics.nextWatering;
+    }
 
     const schedule = await WaterSchedule.create({
       userId: req.user._id,
@@ -84,7 +90,7 @@ router.post('/', protect, async (req, res) => {
       plantingDate,
       irrigationMethod,
       remindersEnabled: remindersEnabled !== undefined ? remindersEnabled : true,
-      nextWatering,
+      nextWatering: nextWateringDate,
       wateringTime: wateringTime || '08:00'
     });
 
@@ -99,7 +105,7 @@ router.post('/', protect, async (req, res) => {
 // @desc    Update/edit schedule or toggle reminders
 router.put('/:id', protect, async (req, res) => {
   try {
-    const { crop, fieldSize, soilType, irrigationMethod, remindersEnabled, wateringTime } = req.body;
+    const { crop, fieldSize, soilType, irrigationMethod, remindersEnabled, wateringTime, nextWatering } = req.body;
     let schedule = await WaterSchedule.findById(req.id || req.params.id);
 
     if (!schedule) {
@@ -118,10 +124,12 @@ router.put('/:id', protect, async (req, res) => {
     if (remindersEnabled !== undefined) schedule.remindersEnabled = remindersEnabled;
     if (wateringTime) schedule.wateringTime = wateringTime;
 
-    // Recalculate metrics if crop/soil/size changes
-    if (crop || soilType || fieldSize) {
-      const { nextWatering } = calculateWateringMetrics(schedule.crop, schedule.soilType, schedule.fieldSize);
-      schedule.nextWatering = nextWatering;
+    if (nextWatering) {
+      schedule.nextWatering = new Date(nextWatering);
+    } else if (crop || soilType || fieldSize) {
+      // Recalculate metrics if crop/soil/size changes
+      const { nextWatering: calcNextWatering } = calculateWateringMetrics(schedule.crop, schedule.soilType, schedule.fieldSize);
+      schedule.nextWatering = calcNextWatering;
     }
 
     await schedule.save();

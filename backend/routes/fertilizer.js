@@ -80,13 +80,19 @@ router.get('/', protect, async (req, res) => {
 // @desc    Create a new fertilizer schedule
 router.post('/', protect, async (req, res) => {
   try {
-    const { crop, growthStage, soilInfo, plantingDate, fieldSize, remindersEnabled, applicationTime } = req.body;
+    const { crop, growthStage, soilInfo, plantingDate, fieldSize, remindersEnabled, applicationTime, nextApplication } = req.body;
 
     if (!crop || !growthStage || !soilInfo || !plantingDate || !fieldSize) {
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
-    const { fertilizerType, nextApplication } = calculateFertilizationMetrics(crop, growthStage, soilInfo);
+    let nextAppDate;
+    const { fertilizerType, nextApplication: calcNextApp } = calculateFertilizationMetrics(crop, growthStage, soilInfo);
+    if (nextApplication) {
+      nextAppDate = new Date(nextApplication);
+    } else {
+      nextAppDate = calcNextApp;
+    }
 
     const schedule = await FertilizerSchedule.create({
       userId: req.user._id,
@@ -97,7 +103,7 @@ router.post('/', protect, async (req, res) => {
       fieldSize: parseFloat(fieldSize),
       remindersEnabled: remindersEnabled !== undefined ? remindersEnabled : true,
       fertilizerType,
-      nextApplication,
+      nextApplication: nextAppDate,
       applicationTime: applicationTime || '08:00'
     });
 
@@ -112,7 +118,7 @@ router.post('/', protect, async (req, res) => {
 // @desc    Update fertilizer schedule or toggle reminders
 router.put('/:id', protect, async (req, res) => {
   try {
-    const { crop, growthStage, soilInfo, remindersEnabled, fieldSize, applicationTime } = req.body;
+    const { crop, growthStage, soilInfo, remindersEnabled, fieldSize, applicationTime, nextApplication } = req.body;
     let schedule = await FertilizerSchedule.findById(req.params.id);
 
     if (!schedule) {
@@ -131,15 +137,17 @@ router.put('/:id', protect, async (req, res) => {
     if (remindersEnabled !== undefined) schedule.remindersEnabled = remindersEnabled;
     if (applicationTime) schedule.applicationTime = applicationTime;
 
-    // Recalculate if changed
-    if (crop || growthStage || soilInfo) {
-      const { fertilizerType, nextApplication } = calculateFertilizationMetrics(
+    if (nextApplication) {
+      schedule.nextApplication = new Date(nextApplication);
+    } else if (crop || growthStage || soilInfo) {
+      // Recalculate if changed
+      const { fertilizerType, nextApplication: calcNextApplication } = calculateFertilizationMetrics(
         schedule.crop,
         schedule.growthStage,
         schedule.soilInfo
       );
       schedule.fertilizerType = fertilizerType;
-      schedule.nextApplication = nextApplication;
+      schedule.nextApplication = calcNextApplication;
     }
 
     await schedule.save();

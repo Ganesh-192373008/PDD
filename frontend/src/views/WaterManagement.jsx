@@ -15,6 +15,7 @@ export const WaterManagement = () => {
   const [plantingDate, setPlantingDate] = useState('');
   const [irrigationMethod, setIrrigationMethod] = useState('Drip Irrigation');
   const [wateringTime, setWateringTime] = useState('08:00');
+  const [nextWateringDate, setNextWateringDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     if (token) {
@@ -61,7 +62,8 @@ export const WaterManagement = () => {
           soilType,
           plantingDate,
           irrigationMethod,
-          wateringTime
+          wateringTime,
+          nextWatering: nextWateringDate
         })
       });
 
@@ -207,6 +209,16 @@ export const WaterManagement = () => {
             </div>
 
             <div className="grid-2 mt-2">
+              <div className="form-group">
+                <label className="input-label">Next Watering Date:</label>
+                <input
+                  type="date"
+                  value={nextWateringDate}
+                  onChange={(e) => setNextWateringDate(e.target.value)}
+                  className="input-field"
+                  required
+                />
+              </div>
               <div className="form-group">
                 <label className="input-label">Reminder Alarm Time:</label>
                 <input

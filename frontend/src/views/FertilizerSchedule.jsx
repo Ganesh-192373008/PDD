@@ -15,6 +15,7 @@ export const FertilizerSchedule = () => {
   const [plantingDate, setPlantingDate] = useState('');
   const [fieldSize, setFieldSize] = useState('');
   const [applicationTime, setApplicationTime] = useState('08:00');
+  const [nextApplicationDate, setNextApplicationDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     if (token) {
@@ -61,7 +62,8 @@ export const FertilizerSchedule = () => {
           soilInfo,
           plantingDate,
           fieldSize: parseFloat(fieldSize),
-          applicationTime
+          applicationTime,
+          nextApplication: nextApplicationDate
         })
       });
 
@@ -207,6 +209,16 @@ export const FertilizerSchedule = () => {
             </div>
 
             <div className="grid-2 mt-2">
+              <div className="input-group">
+                <label className="input-label">Next Application Date:</label>
+                <input
+                  type="date"
+                  className="input-field"
+                  value={nextApplicationDate}
+                  onChange={(e) => setNextApplicationDate(e.target.value)}
+                  required
+                />
+              </div>
               <div className="input-group">
                 <label className="input-label">Reminder Alarm Time:</label>
                 <input
