@@ -74,6 +74,20 @@ router.get('/', protect, async (req, res) => {
   }
 });
 
+// @route   GET api/history/scans
+// @desc    Get user's scan history only
+router.get('/scans', protect, async (req, res) => {
+  try {
+    const scans = await ScanHistory.find({ userId: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.json(scans);
+  } catch (error) {
+    console.error('Error fetching scan history:', error);
+    res.status(500).json({ message: 'Server error retrieving scan history.' });
+  }
+});
+
 // @route   GET api/history/scans/:id
 // @desc    Get a specific scan from history
 router.get('/scans/:id', protect, async (req, res) => {
