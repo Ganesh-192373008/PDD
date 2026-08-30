@@ -68,7 +68,7 @@ router.get('/', protect, async (req, res) => {
 // @desc    Create a new watering schedule
 router.post('/', protect, async (req, res) => {
   try {
-    const { crop, fieldSize, soilType, plantingDate, irrigationMethod, remindersEnabled } = req.body;
+    const { crop, fieldSize, soilType, plantingDate, irrigationMethod, remindersEnabled, wateringTime } = req.body;
 
     if (!crop || !fieldSize || !soilType || !plantingDate || !irrigationMethod) {
       return res.status(400).json({ message: 'All inputs are required.' });
@@ -84,7 +84,8 @@ router.post('/', protect, async (req, res) => {
       plantingDate,
       irrigationMethod,
       remindersEnabled: remindersEnabled !== undefined ? remindersEnabled : true,
-      nextWatering
+      nextWatering,
+      wateringTime: wateringTime || '08:00'
     });
 
     res.status(201).json(schedule);
@@ -98,7 +99,7 @@ router.post('/', protect, async (req, res) => {
 // @desc    Update/edit schedule or toggle reminders
 router.put('/:id', protect, async (req, res) => {
   try {
-    const { crop, fieldSize, soilType, irrigationMethod, remindersEnabled } = req.body;
+    const { crop, fieldSize, soilType, irrigationMethod, remindersEnabled, wateringTime } = req.body;
     let schedule = await WaterSchedule.findById(req.id || req.params.id);
 
     if (!schedule) {
@@ -115,6 +116,7 @@ router.put('/:id', protect, async (req, res) => {
     if (soilType) schedule.soilType = soilType;
     if (irrigationMethod) schedule.irrigationMethod = irrigationMethod;
     if (remindersEnabled !== undefined) schedule.remindersEnabled = remindersEnabled;
+    if (wateringTime) schedule.wateringTime = wateringTime;
 
     // Recalculate metrics if crop/soil/size changes
     if (crop || soilType || fieldSize) {

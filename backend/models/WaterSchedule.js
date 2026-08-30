@@ -33,6 +33,10 @@ const WaterScheduleSchema = new mongoose.Schema({
   nextWatering: {
     type: Date,
   },
+  wateringTime: {
+    type: String,
+    default: '08:00'
+  },
   createdAt: {
     type: Date,
     default: Date.now,

@@ -36,6 +36,10 @@ const FertilizerScheduleSchema = new mongoose.Schema({
   fertilizerType: {
     type: String,
   },
+  applicationTime: {
+    type: String,
+    default: '08:00'
+  },
   createdAt: {
     type: Date,
     default: Date.now,

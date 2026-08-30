@@ -80,7 +80,7 @@ router.get('/', protect, async (req, res) => {
 // @desc    Create a new fertilizer schedule
 router.post('/', protect, async (req, res) => {
   try {
-    const { crop, growthStage, soilInfo, plantingDate, fieldSize, remindersEnabled } = req.body;
+    const { crop, growthStage, soilInfo, plantingDate, fieldSize, remindersEnabled, applicationTime } = req.body;
 
     if (!crop || !growthStage || !soilInfo || !plantingDate || !fieldSize) {
       return res.status(400).json({ message: 'All fields are required.' });
@@ -97,7 +97,8 @@ router.post('/', protect, async (req, res) => {
       fieldSize: parseFloat(fieldSize),
       remindersEnabled: remindersEnabled !== undefined ? remindersEnabled : true,
       fertilizerType,
-      nextApplication
+      nextApplication,
+      applicationTime: applicationTime || '08:00'
     });
 
     res.status(201).json(schedule);
@@ -111,7 +112,7 @@ router.post('/', protect, async (req, res) => {
 // @desc    Update fertilizer schedule or toggle reminders
 router.put('/:id', protect, async (req, res) => {
   try {
-    const { crop, growthStage, soilInfo, remindersEnabled, fieldSize } = req.body;
+    const { crop, growthStage, soilInfo, remindersEnabled, fieldSize, applicationTime } = req.body;
     let schedule = await FertilizerSchedule.findById(req.params.id);
 
     if (!schedule) {
@@ -128,6 +129,7 @@ router.put('/:id', protect, async (req, res) => {
     if (soilInfo) schedule.soilInfo = soilInfo;
     if (fieldSize) schedule.fieldSize = parseFloat(fieldSize);
     if (remindersEnabled !== undefined) schedule.remindersEnabled = remindersEnabled;
+    if (applicationTime) schedule.applicationTime = applicationTime;
 
     // Recalculate if changed
     if (crop || growthStage || soilInfo) {
