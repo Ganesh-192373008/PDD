@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 
 void main() {
@@ -1528,6 +1529,7 @@ class MainShellScreen extends StatefulWidget {
 
 class _MainShellScreenState extends State<MainShellScreen> {
   int _currentIndex = 0;
+  DateTime? _lastBackPressTime;
 
   final List<Widget> _tabs = [
     const DashboardTab(),
@@ -1541,22 +1543,50 @@ class _MainShellScreenState extends State<MainShellScreen> {
   Widget build(BuildContext context) {
     final state = Provider.of<AppState>(context);
     
-    return Scaffold(
-      body: SafeArea(child: _tabs[_currentIndex]),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.textSecondary,
-        backgroundColor: Colors.black.withOpacity(0.95),
-        items: [
-          BottomNavigationBarItem(icon: const Icon(Icons.dashboard), label: state.t('dashboard')),
-          BottomNavigationBarItem(icon: const Icon(Icons.chat_bubble), label: state.t('aiAssistant')),
-          BottomNavigationBarItem(icon: const Icon(Icons.camera_alt), label: state.t('scanCrop')),
-          BottomNavigationBarItem(icon: const Icon(Icons.shopping_bag), label: state.t('products')),
-          BottomNavigationBarItem(icon: const Icon(Icons.person), label: state.t('profile')),
-        ],
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        if (_currentIndex != 0) {
+          setState(() => _currentIndex = 0);
+          return;
+        }
+        final now = DateTime.now();
+        if (_lastBackPressTime == null || now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Press back again to exit AgroAssist'),
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+        SystemNavigator.pop();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: IndexedStack(
+            index: _currentIndex,
+            children: _tabs,
+          ),
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: (index) => setState(() => _currentIndex = index),
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: AppColors.primary,
+          unselectedItemColor: AppColors.textSecondary,
+          backgroundColor: Colors.black.withOpacity(0.95),
+          items: [
+            BottomNavigationBarItem(icon: const Icon(Icons.dashboard), label: state.t('dashboard')),
+            BottomNavigationBarItem(icon: const Icon(Icons.chat_bubble), label: state.t('aiAssistant')),
+            BottomNavigationBarItem(icon: const Icon(Icons.camera_alt), label: state.t('scanCrop')),
+            BottomNavigationBarItem(icon: const Icon(Icons.shopping_bag), label: state.t('products')),
+            BottomNavigationBarItem(icon: const Icon(Icons.person), label: state.t('profile')),
+          ],
+        ),
       ),
     );
   }
@@ -2513,13 +2543,38 @@ class _ScanTabState extends State<ScanTab> {
 
   final _picker = ImagePicker();
 
+  @override
+  void initState() {
+    super.initState();
+    _retrieveLostData();
+  }
+
+  Future<void> _retrieveLostData() async {
+    try {
+      final response = await _picker.retrieveLostData();
+      if (response.isEmpty) return;
+      if (response.file != null) {
+        setState(() {
+          _imageFile = File(response.file!.path);
+        });
+      }
+    } catch (e) {
+      debugPrint('Retrieve lost data error: $e');
+    }
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     setState(() {
       _error = '';
       _result = null;
     });
     try {
-      final picked = await _picker.pickImage(source: source, imageQuality: 85);
+      final picked = await _picker.pickImage(
+        source: source,
+        maxWidth: 1080,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
       if (picked != null) {
         setState(() {
           _imageFile = File(picked.path);
