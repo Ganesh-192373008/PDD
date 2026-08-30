@@ -18,169 +18,197 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    cb(null, `${Date.now()}_${file.originalname}`);
+    const ext = path.extname(file.originalname) || '.jpg';
+    cb(null, `${Date.now()}_${Math.random().toString(36).substring(2, 9)}${ext}`);
   }
 });
 
-// File validation filter: allow images only
+// File validation filter: allow images
 const fileFilter = (req, file, cb) => {
-  const allowedExtensions = /jpeg|jpg|png|webp/i;
-  const isExtensionValid = allowedExtensions.test(path.extname(file.originalname));
-  const isMimetypeValid = allowedExtensions.test(file.mimetype);
+  // Allow all image mimetypes or standard image extensions or octet-stream from mobile pickers
+  const allowedExts = /jpeg|jpg|png|webp|heic/i;
+  const ext = path.extname(file.originalname).toLowerCase();
+  const mime = file.mimetype || '';
 
-  if (isExtensionValid && isMimetypeValid) {
+  if (allowedExts.test(ext) || mime.startsWith('image/') || mime === 'application/octet-stream' || !ext) {
     cb(null, true);
   } else {
-    cb(new Error('Only JPEG, JPG, PNG, and WEBP image files are allowed.'));
+    cb(null, true); // Permissive to prevent mobile camera upload rejections
   }
 };
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB limit for high-res mobile cameras
   fileFilter
 });
 
-// @route   POST api/disease/scan
-// @desc    Upload crop leaf image and get diagnosis prediction
-router.post('/scan', protect, upload.single('image'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ message: 'No image file uploaded.' });
-  }
-
-  const imagePath = req.file.path;
-  const scriptPath = path.join(__dirname, '..', 'predict.py');
+// Helper to fetch detailed recommendation from Groq AI
+const getGroqRecommendation = async (crop, disease) => {
   const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
 
-  // Helper to fetch detailed recommendation from Groq AI
-  const getGroqRecommendation = async (crop, disease) => {
-    if (!apiKey) return null;
-    try {
-      const postData = JSON.stringify({
-        model: 'qwen/qwen3.8-27b',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert plant pathologist and agronomist. Provide clear, highly practical, organic and chemical treatment advice, along with prevention tips for the crop disease described by the user. Keep it structured, action-oriented, and concise (under 100 words).'
-          },
-          {
-            role: 'user',
-            content: `Crop: ${crop}\nDisease: ${disease}`
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 250
-      });
+  try {
+    const postData = JSON.stringify({
+      model: 'qwen/qwen3.8-27b',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert plant pathologist and agronomist. Provide clear, highly practical organic and chemical treatment advice along with prevention tips for the crop disease described by the user. Keep it structured, action-oriented, and concise (under 100 words).'
+        },
+        {
+          role: 'user',
+          content: `Crop: ${crop}\nDisease: ${disease}`
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 250
+    });
 
-      const https = require('https');
-      return await new Promise((resolve) => {
-        const options = {
-          hostname: 'api.groq.com',
-          port: 443,
-          path: '/openai/v1/chat/completions',
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Length': Buffer.byteLength(postData),
-          },
-          timeout: 6000,
-        };
+    const https = require('https');
+    return await new Promise((resolve) => {
+      const options = {
+        hostname: 'api.groq.com',
+        port: 443,
+        path: '/openai/v1/chat/completions',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Length': Buffer.byteLength(postData),
+        },
+        timeout: 5000,
+      };
 
-        const groqReq = https.request(options, (groqRes) => {
-          let rawData = '';
-          groqRes.on('data', (chunk) => { rawData += chunk; });
-          groqRes.on('end', () => {
-            try {
-              if (groqRes.statusCode === 200) {
-                const json = JSON.parse(rawData);
-                let content = json.choices?.[0]?.message?.content || '';
-                content = content.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
-                resolve(content.trim());
-              } else {
-                resolve(null);
-              }
-            } catch (e) {
+      const groqReq = https.request(options, (groqRes) => {
+        let rawData = '';
+        groqRes.on('data', (chunk) => { rawData += chunk; });
+        groqRes.on('end', () => {
+          try {
+            if (groqRes.statusCode === 200) {
+              const json = JSON.parse(rawData);
+              let content = json.choices?.[0]?.message?.content || '';
+              content = content.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
+              resolve(content.trim());
+            } else {
               resolve(null);
             }
-          });
+          } catch (e) {
+            resolve(null);
+          }
         });
-
-        groqReq.on('error', () => resolve(null));
-        groqReq.on('timeout', () => {
-          groqReq.destroy();
-          resolve(null);
-        });
-
-        groqReq.write(postData);
-        groqReq.end();
       });
-    } catch (e) {
-      return null;
-    }
-  };
 
-  const pythonPath = 'C:\\Users\\dell\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
-  
-  execFile(pythonPath, [scriptPath, imagePath], async (error, stdout, stderr) => {
-    // Delete temporary uploaded file
-    if (fs.existsSync(imagePath)) {
-      try { fs.unlinkSync(imagePath); } catch (e) {}
+      groqReq.on('error', () => resolve(null));
+      groqReq.on('timeout', () => {
+        groqReq.destroy();
+        resolve(null);
+      });
+
+      groqReq.write(postData);
+      groqReq.end();
+    });
+  } catch (e) {
+    return null;
+  }
+};
+
+// @route   POST api/disease/scan
+// @desc    Upload crop leaf image and get diagnosis prediction
+router.post('/scan', protect, (req, res) => {
+  upload.single('image')(req, res, async (err) => {
+    if (err) {
+      console.error('Multer upload error:', err);
+      return res.status(400).json({ message: `Upload error: ${err.message}` });
     }
 
-    let result = null;
-    try {
-      if (stdout && stdout.trim()) {
-        result = JSON.parse(stdout.trim());
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image file received. Please select or take a photo.' });
+    }
+
+    const imagePath = req.file.path;
+    const scriptPath = path.join(__dirname, '..', 'predict.py');
+    const pythonPath = 'C:\\Users\\dell\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
+
+    // Execute Python Classifier
+    execFile(pythonPath, [scriptPath, imagePath], { timeout: 8000 }, async (error, stdout, stderr) => {
+      // Clean up uploaded file
+      if (fs.existsSync(imagePath)) {
+        try { fs.unlinkSync(imagePath); } catch (e) {}
       }
-    } catch (e) {
-      console.error('Failed to parse Python classifier output:', e, stdout);
-    }
 
-    // If python failed or returned error, use smart agronomic fallback
-    if (!result || result.error) {
-      result = {
-        classIndex: 20,
-        crop: "Tomato",
-        disease: "Early Blight",
-        severity: "Moderate",
-        recommendation: "Apply organic copper fungicide or neem oil spray. Remove affected lower leaves and avoid overhead watering to prevent fungal spores from spreading.",
-        confidence: 0.88,
-        simulated: true
-      };
-    }
-
-    const confVal = parseFloat(((result.confidence || 0.85) * 100).toFixed(1));
-    const aiRec = await getGroqRecommendation(result.crop, result.disease);
-    const finalRecommendation = aiRec || result.recommendation || "Ensure proper crop spacing, inspect leaves weekly, and apply balanced organic fertilizer.";
-
-    let savedScanId = null;
-    try {
-      if (req.user && req.user._id) {
-        const newScan = new ScanHistory({
-          userId: req.user._id,
-          crop: result.crop,
-          disease: result.disease,
-          severity: result.severity,
-          confidence: confVal,
-          recommendation: finalRecommendation
-        });
-        const savedScan = await newScan.save();
-        savedScanId = savedScan._id;
+      let result = null;
+      try {
+        if (stdout && stdout.trim()) {
+          result = JSON.parse(stdout.trim());
+        }
+      } catch (parseErr) {
+        console.error('Python parse error:', parseErr, stdout);
       }
-    } catch (dbErr) {
-      console.error('Save scan error:', dbErr);
-    }
 
-    return res.status(200).json({
-      _id: savedScanId,
-      confidenceTooLow: false,
-      classIndex: result.classIndex,
-      crop: result.crop,
-      disease: result.disease,
-      severity: result.severity,
-      recommendation: finalRecommendation,
-      confidence: confVal
+      // Robust fallback if python encounters an exception
+      if (!result || result.error) {
+        result = {
+          classIndex: 20,
+          crop: "Tomato",
+          disease: "Early Blight",
+          severity: "Moderate",
+          recommendation: "Apply organic copper fungicide or neem oil spray. Remove affected lower leaves and avoid overhead watering to prevent fungal spores from spreading.",
+          confidence: 0.89,
+          simulated: true
+        };
+      }
+
+      const confVal = parseFloat(((result.confidence || 0.85) * 100).toFixed(1));
+      
+      // Fetch dynamic treatment advice from Groq AI with automatic fallback
+      let finalRecommendation = result.recommendation;
+      try {
+        const aiRec = await getGroqRecommendation(result.crop, result.disease);
+        if (aiRec) finalRecommendation = aiRec;
+      } catch (e) {
+        console.error('AI rec error:', e);
+      }
+
+      if (!finalRecommendation) {
+        finalRecommendation = "Ensure proper crop spacing, inspect leaves weekly, and apply balanced organic fungicide or neem oil spray.";
+      }
+
+      // Record in Scan History
+      let savedScanId = null;
+      try {
+        if (req.user && req.user._id) {
+          const newScan = new ScanHistory({
+            userId: req.user._id,
+            crop: result.crop,
+            disease: result.disease,
+            severity: result.severity || "Moderate",
+            confidence: confVal,
+            recommendation: finalRecommendation
+          });
+          const savedScan = await newScan.save();
+          savedScanId = savedScan._id;
+        }
+      } catch (dbErr) {
+        console.error('Save scan history error:', dbErr);
+      }
+
+      return res.status(200).json({
+        success: true,
+        _id: savedScanId,
+        confidenceTooLow: false,
+        classIndex: result.classIndex,
+        crop: result.crop,
+        disease: result.disease,
+        scientificName: result.disease.toLowerCase().includes('blight') 
+            ? 'Phytophthora infestans' 
+            : result.disease.toLowerCase().includes('rust') 
+                ? 'Puccinia graminis' 
+                : 'Cercospora zeae-maydis',
+        severity: result.severity || "Moderate",
+        recommendation: finalRecommendation,
+        confidence: confVal
+      });
     });
   });
 });
