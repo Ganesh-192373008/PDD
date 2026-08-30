@@ -128,9 +128,14 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
   };
 
   const runPythonPrediction = () => {
+    const logFile = path.join(__dirname, '..', 'scan_debug.log');
+    fs.appendFileSync(logFile, `[${new Date().toISOString()}] runPythonPrediction started. imagePath=${imagePath}\n`);
+
     // Spawn Python child process to execute tensorflow classification with absolute path
     const pythonPath = 'C:\\Users\\dell\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
     execFile(pythonPath, [scriptPath, imagePath], (error, stdout, stderr) => {
+      fs.appendFileSync(logFile, `[${new Date().toISOString()}] execFile completed. error=${error ? error.message : 'null'} stderr=${stderr} stdout=${stdout}\n`);
+
       // Delete temporary uploaded file to keep storage clean
       if (fs.existsSync(imagePath)) {
         fs.unlinkSync(imagePath);
@@ -191,11 +196,14 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
   // If Groq API Key is configured, use the Groq Vision model to check if the uploaded image is actually a plant/crop/leaf
   if (apiKey) {
     try {
+      const logFile = path.join(__dirname, '..', 'scan_debug.log');
+      fs.appendFileSync(logFile, `[${new Date().toISOString()}] Groq Vision check initiated. imagePath=${imagePath}\n`);
+
       const imageBuffer = fs.readFileSync(imagePath);
       const base64Image = imageBuffer.toString('base64');
 
       const postData = JSON.stringify({
-        model: 'llama-3.2-11b-vision-preview',
+        model: 'qwen/qwen3.6-27b',
         messages: [
           {
             role: 'user',
@@ -235,6 +243,7 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
         let rawData = '';
         visionRes.on('data', (chunk) => { rawData += chunk; });
         visionRes.on('end', () => {
+          fs.appendFileSync(logFile, `[${new Date().toISOString()}] Groq Vision response code: ${visionRes.statusCode} rawData: ${rawData}\n`);
           try {
             if (visionRes.statusCode === 200) {
               const resJson = JSON.parse(rawData);
@@ -260,11 +269,13 @@ router.post('/scan', protect, upload.single('image'), (req, res) => {
       });
 
       visionReq.on('error', (err) => {
+        fs.appendFileSync(logFile, `[${new Date().toISOString()}] Groq Vision request error: ${err.message}\n`);
         console.error('Groq vision request error:', err);
         runPythonPrediction();
       });
 
       visionReq.on('timeout', () => {
+        fs.appendFileSync(logFile, `[${new Date().toISOString()}] Groq Vision request timeout\n`);
         visionReq.destroy();
         runPythonPrediction();
       });
