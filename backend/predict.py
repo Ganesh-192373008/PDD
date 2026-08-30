@@ -243,10 +243,9 @@ def verify_is_plant_or_leaf(img):
     """
     Botanical leaf verification:
     Analyzes RGB & HSV color channels to ensure the uploaded photo contains genuine plant foliage/leaf textures,
-    rejecting non-plant objects (e.g. humans, furniture, electronics, solid screens, sky, cars).
+    rejecting non-plant objects (e.g. humans, skin, furniture, electronics, solid screens, sky, clothing).
     """
     try:
-        # Resize for fast heuristic analysis
         small_img = img.resize((128, 128)).convert('RGB')
         hsv_img = small_img.convert('HSV')
         
@@ -256,48 +255,47 @@ def verify_is_plant_or_leaf(img):
         r, g, b = rgb_arr[:, :, 0], rgb_arr[:, :, 1], rgb_arr[:, :, 2]
         h, s, v = hsv_arr[:, :, 0], hsv_arr[:, :, 1], hsv_arr[:, :, 2]
         
-        # In PIL HSV: H is 0-255 (where 255 = 360 degrees)
-        # Green foliage: Hue approx 40° to 160° -> ~28 to 115 in 0-255
-        # Yellowish / Brown / Diseased leaf: Hue approx 20° to 45° -> ~14 to 32
-        green_mask = (h >= 25) & (h <= 120) & (s >= 35) & (v >= 30)
-        yellow_brown_mask = (h >= 10) & (h < 25) & (s >= 40) & (v >= 30) & (g >= b)
-        
-        # Chlorophyll ratio: Green channel dominance check
-        chlorophyll_ratio = (g > (r * 0.85)) & (g > (b * 0.85)) & (g > 30)
-        
-        plant_pixels = green_mask | yellow_brown_mask | chlorophyll_ratio
-        plant_coverage = np.sum(plant_pixels) / (128 * 128)
-        
-        # Check color variance to eliminate monochromatic blank backgrounds
-        color_std = np.std(rgb_arr)
-        
-        if color_std < 15.0:
-            # Blank/solid screen or wall
-            return False, plant_coverage
-            
-        # If plant foliage is less than 10%, it's not a crop leaf
-        if plant_coverage < 0.10:
+        # Exclude human skin tones (R > G > B and R - G > 15)
+        skin_mask = (r > g) & (g > b) & (r - g > 15) & (s > 30) & (s < 180) & (h < 25)
+
+        # Exclude neutral/gray/white/black non-plant tones (low saturation or low contrast)
+        neutral_mask = (s < 40) | (v < 25) | (np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b) < 18)
+
+        # Genuine green leaf foliage (Hue 40 deg to 155 deg in 0-255 range -> ~28 to 110)
+        green_foliage = (h >= 28) & (h <= 110) & (s >= 45) & (v >= 30) & (g > r * 1.02) & (g > b * 1.05) & (~skin_mask) & (~neutral_mask)
+
+        # Diseased / yellow-brown plant leaf tissue (Hue 15 deg to 38 deg with green-yellow balance)
+        diseased_foliage = (h >= 14) & (h < 28) & (s >= 55) & (v >= 35) & (g >= b * 1.15) & (r >= b * 1.15) & (~skin_mask) & (~neutral_mask)
+
+        # Green Leaf Index (GLI) = (2*G - R - B) / (2*G + R + B + 1e-5)
+        gli = (2 * g - r - b) / (2 * g + r + b + 1e-5)
+        gli_plant = (gli > 0.08) & (s >= 40) & (v >= 30) & (~skin_mask) & (~neutral_mask)
+
+        plant_pixels = green_foliage | diseased_foliage | gli_plant
+        plant_coverage = float(np.sum(plant_pixels) / (128 * 128))
+        color_std = float(np.std(rgb_arr))
+
+        if color_std < 18.0 or plant_coverage < 0.22:
             return False, plant_coverage
             
         return True, plant_coverage
     except Exception:
-        # Fallback permissive if heuristic throws
-        return True, 0.5
+        return False, 0.0
 
 def main():
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "No image path provided."}))
+        print(json.dumps({"errorType": "NO_IMAGE", "message": "No image path provided."}))
         sys.exit(1)
         
     image_path = sys.argv[1]
     if not os.path.exists(image_path):
-        print(json.dumps({"error": f"Image file not found: {image_path}"}))
+        print(json.dumps({"errorType": "NOT_FOUND", "message": f"Image file not found: {image_path}"}))
         sys.exit(1)
 
     try:
         img = Image.open(image_path)
     except Exception as e:
-        print(json.dumps({"error": f"Invalid image file: {str(e)}"}))
+        print(json.dumps({"errorType": "INVALID_IMAGE", "message": f"Invalid image file: {str(e)}"}))
         sys.exit(1)
 
     # 1. Botanical Leaf Verification
@@ -306,7 +304,7 @@ def main():
         output = {
             "isPlant": False,
             "confidenceTooLow": True,
-            "error": "No plant leaf detected in the captured image. Please take a clear close-up photo of a crop or plant leaf.",
+            "message": "No crop leaf detected in the captured image. Please take a clear close-up photo of a plant or crop leaf.",
             "plantCoverage": float(round(coverage, 3))
         }
         print(json.dumps(output))
@@ -361,12 +359,12 @@ def main():
         class_idx = int(np.argmax(predictions[0]))
         confidence = float(predictions[0][class_idx])
 
-        # If model confidence is very low (< 45%), reject as non-plant / unrecognized
+        # If model confidence is low (< 45%), reject as unrecognized
         if confidence < 0.45:
             print(json.dumps({
                 "isPlant": False,
                 "confidenceTooLow": True,
-                "error": "The image could not be identified as a recognizable crop leaf. Please ensure good lighting and focus directly on the leaf."
+                "message": "The image could not be identified as a recognizable crop leaf. Please ensure good lighting and focus directly on the leaf."
             }))
             sys.exit(0)
 
@@ -390,7 +388,7 @@ def main():
         print(json.dumps(output))
 
     except Exception as e:
-        print(json.dumps({"error": f"Error running inference: {str(e)}"}))
+        print(json.dumps({"errorType": "INFERENCE_ERROR", "message": f"Error running inference: {str(e)}"}))
         sys.exit(1)
 
 if __name__ == '__main__':

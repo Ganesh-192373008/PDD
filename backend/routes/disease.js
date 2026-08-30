@@ -32,13 +32,13 @@ const fileFilter = (req, file, cb) => {
   if (allowedExts.test(ext) || mime.startsWith('image/') || mime === 'application/octet-stream' || !ext) {
     cb(null, true);
   } else {
-    cb(null, true); // Permissive to prevent mobile camera upload rejections
+    cb(null, true);
   }
 };
 
 const upload = multer({
   storage,
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB limit for high-res mobile cameras
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB limit
   fileFilter
 });
 
@@ -113,7 +113,7 @@ const getGroqRecommendation = async (crop, disease) => {
 };
 
 // @route   POST api/disease/scan
-// @desc    Upload crop leaf image, verify leaf authenticity, and get diagnosis prediction
+// @desc    Upload crop leaf image, verify botanical leaf authenticity, and get diagnosis
 router.post('/scan', protect, (req, res) => {
   upload.single('image')(req, res, async (err) => {
     if (err) {
@@ -131,7 +131,7 @@ router.post('/scan', protect, (req, res) => {
 
     // Execute Python Classifier
     execFile(pythonPath, [scriptPath, imagePath], { timeout: 8000 }, async (error, stdout, stderr) => {
-      // Clean up uploaded file
+      // Clean up uploaded file from disk
       if (fs.existsSync(imagePath)) {
         try { fs.unlinkSync(imagePath); } catch (e) {}
       }
@@ -145,32 +145,18 @@ router.post('/scan', protect, (req, res) => {
         console.error('Python parse error:', parseErr, stdout);
       }
 
-      // Check if image is NOT a plant or confidence is too low
-      if (result && (result.isPlant === false || result.confidenceTooLow === true)) {
+      // Check if image is NOT a plant or confidence is too low or errorType returned
+      if (!result || result.isPlant === false || result.confidenceTooLow === true || result.errorType) {
         return res.status(200).json({
           success: false,
           isPlant: false,
           confidenceTooLow: true,
-          message: result.error || 'No plant leaf detected in the photo. Please capture a clear, close-up photo of a crop leaf.',
-          recommendation: 'AgroAssist only scans plant leaves and crops. Please point the camera directly at an affected leaf with good lighting.'
+          message: result?.message || 'No crop leaf detected in the photo. AgroAssist only scans crops and plant foliage.',
+          recommendation: 'Please capture a clear, close-up photograph of an affected crop leaf in adequate natural lighting.'
         });
       }
 
-      // Robust fallback if python encounters an exception
-      if (!result || result.error) {
-        result = {
-          isPlant: true,
-          classIndex: 20,
-          crop: "Tomato",
-          disease: "Early Blight",
-          severity: "Moderate",
-          recommendation: "Apply organic copper fungicide or neem oil spray. Remove affected lower leaves and avoid overhead watering to prevent fungal spores from spreading.",
-          confidence: 0.89,
-          simulated: true
-        };
-      }
-
-      const confVal = parseFloat(((result.confidence || 0.85) * 100).toFixed(1));
+      const confVal = parseFloat(((result.confidence || 0.88) * 100).toFixed(1));
       
       // Fetch dynamic treatment advice from Groq AI with automatic fallback
       let finalRecommendation = result.recommendation;
@@ -185,7 +171,7 @@ router.post('/scan', protect, (req, res) => {
         finalRecommendation = "Ensure proper crop spacing, inspect leaves weekly, and apply balanced organic fungicide or neem oil spray.";
       }
 
-      // Record genuine scan in Scan History
+      // Record verified crop scan in Scan History
       let savedScanId = null;
       try {
         if (req.user && req.user._id) {
