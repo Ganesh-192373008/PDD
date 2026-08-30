@@ -2748,14 +2748,78 @@ class _ScanTabState extends State<ScanTab> {
                     Row(
                       children: [
                         Expanded(
-                          child: _buildResultRow('SEVERITY', _result!['severity'] ?? 'High'),
+                          child: _buildResultRow('SEVERITY', _result!['severity'] ?? 'Moderate'),
                         ),
                         Expanded(
-                          child: _buildResultRow('RISK LEVEL', _result!['riskLevel'] ?? 'High'),
+                          child: _buildResultRow('CONFIDENCE', '${_result!['confidence'] ?? 88}%'),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
+
+                    if (_result!['recommendation'] != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.black38,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Icon(Icons.healing, color: Colors.greenAccent, size: 18),
+                                    SizedBox(width: 6),
+                                    Text('AI Agronomist Advice:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.greenAccent, fontSize: 13)),
+                                  ],
+                                ),
+                                InkWell(
+                                  onTap: () async {
+                                    final tts = FlutterTts();
+                                    await tts.setLanguage("en-IN");
+                                    await tts.setSpeechRate(0.5);
+                                    await tts.speak(_result!['recommendation'].toString().replaceAll(RegExp(r'[*#_`]'), ''));
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Speaking diagnosis remedy aloud...'), duration: Duration(seconds: 2)),
+                                      );
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.greenAccent.withOpacity(0.5)),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.volume_up, size: 14, color: Colors.greenAccent),
+                                        SizedBox(width: 4),
+                                        Text('Listen', style: TextStyle(fontSize: 11, color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _result!['recommendation'] ?? '',
+                              style: const TextStyle(fontSize: 13, height: 1.4, color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
 
                     // Action Button 1: View Detailed Report
                     SizedBox(
