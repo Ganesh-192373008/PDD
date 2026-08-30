@@ -29,10 +29,19 @@ router.post('/chat', async (req, res) => {
     });
   }
 
+  // Customize system prompt with user location context if provided
+  let activeSystemPrompt = SYSTEM_PROMPT;
+  if (req.body.location) {
+    const { address, state, district, lat, lng } = req.body.location;
+    if (address || state || district) {
+      activeSystemPrompt += `\n\n[USER LOCATION CONTEXT] The user's current location is: ${address || ''} (State: ${state || 'unknown'}, District: ${district || 'unknown'}, Lat: ${lat || 'unknown'}, Lng: ${lng || 'unknown'}). Use this geographic information to customize your farming guidance, soil advice, crop suggestions, regional weather adaptation, and local agricultural schemes relevant to this specific area.`;
+    }
+  }
+
   // Format messages for Groq API
   // Insert System Prompt at the beginning
   const formattedMessages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: activeSystemPrompt },
     ...messages.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content

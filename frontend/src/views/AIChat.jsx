@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Send, Trash2, Sprout, Bot, User, AlertTriangle } from 'lucide-react';
 
 export const AIChat = () => {
-  const { t, token, API_URL } = useApp();
+  const { t, token, API_URL, location } = useApp();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -61,7 +61,7 @@ export const AIChat = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ messages: chatHistory }),
+        body: JSON.stringify({ messages: chatHistory, location }),
       });
       
       const data = await res.json();
