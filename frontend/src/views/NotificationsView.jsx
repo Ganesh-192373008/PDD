@@ -11,8 +11,28 @@ export const NotificationsView = () => {
   useEffect(() => {
     if (token) {
       fetchNotifications();
+
+      const interval = setInterval(() => {
+        // Fetch quietly without overriding loading state spinner
+        fetchNotificationsQuietly();
+      }, 8000);
+      return () => clearInterval(interval);
     }
   }, [token]);
+
+  const fetchNotificationsQuietly = async () => {
+    try {
+      const res = await fetch(`${API_URL}/notifications`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data);
+      }
+    } catch (e) {
+      console.error('Error fetching notifications quietly:', e);
+    }
+  };
 
   const fetchNotifications = async () => {
     try {

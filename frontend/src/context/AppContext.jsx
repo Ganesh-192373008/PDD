@@ -238,7 +238,7 @@ export const AppProvider = ({ children }) => {
                 body: JSON.stringify({
                   title: '💧 Irrigation Reminder',
                   message: `It is now time (${schedTime}) to irrigate your ${schedule.crop} crop (${schedule.irrigationMethod || 'Drip'}).`,
-                  category: 'Water Irrigation'
+                  category: 'Water Schedule'
                 })
               });
               
@@ -287,7 +287,7 @@ export const AppProvider = ({ children }) => {
                 body: JSON.stringify({
                   title: '🌱 Fertilizer Reminder',
                   message: `It is now time (${schedTime}) to apply ${schedule.fertilizerType} to your ${schedule.crop} (Growth Stage: ${schedule.growthStage}).`,
-                  category: 'Fertilizers'
+                  category: 'Fertilizer Schedule'
                 })
               });
 
