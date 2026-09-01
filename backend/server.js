@@ -3,6 +3,7 @@ const dns = require('dns');
 if (dns.setDefaultResultOrder) {
   dns.setDefaultResultOrder('ipv4first');
 }
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -57,22 +58,15 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-// Start Server and Database Connection
-const startServer = async () => {
-  const conn = await connectDB();
+// Start Server immediately
+app.listen(PORT, () => {
+  console.log(`AgroAssist Server running on port ${PORT}`);
+});
+
+// Connect to Database asynchronously in background
+connectDB().then((conn) => {
   if (conn) {
-    // Seed initial data only if connected
-    if (productsRoute.seedProductsIfEmpty) {
-      productsRoute.seedProductsIfEmpty();
-    }
-    if (communityRoute.seedCommunityIfEmpty) {
-      communityRoute.seedCommunityIfEmpty();
-    }
+    if (productsRoute.seedProductsIfEmpty) productsRoute.seedProductsIfEmpty();
+    if (communityRoute.seedCommunityIfEmpty) communityRoute.seedCommunityIfEmpty();
   }
-
-  app.listen(PORT, () => {
-    console.log(`AgroAssist Server running on port ${PORT}`);
-  });
-};
-
-startServer();
+});

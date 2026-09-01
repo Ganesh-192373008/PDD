@@ -330,8 +330,11 @@ router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: 'Email is required.' });
 
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'If this email exists, a reset code was sent.' });
+    const cleanEmail = email.toLowerCase().trim();
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) {
+      return res.status(404).json({ message: 'No account found registered with this email address. Please check your email or create a new account.' });
+    }
 
     // Generate a temporary 4-digit password reset code
     const resetCode = Math.floor(1000 + Math.random() * 9000).toString();
@@ -341,8 +344,10 @@ router.post('/forgot-password', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedCode = await bcrypt.hash(resetCode, salt);
 
+    await OtpVerification.deleteMany({ phone: `RESET_${cleanEmail}` });
+
     await OtpVerification.create({
-      phone: `RESET_${email}`,
+      phone: `RESET_${cleanEmail}`,
       otp: hashedCode,
       expiresAt
     });
@@ -350,20 +355,21 @@ router.post('/forgot-password', async (req, res) => {
     // Attempt to send email via Brevo SMTP
     let emailSent = false;
     try {
-      emailSent = await sendResetPasswordEmail(email, resetCode);
+      emailSent = await sendResetPasswordEmail(cleanEmail, resetCode);
     } catch (mailError) {
       console.error('[PASSWORD RESET ERROR] Failed to send email via Brevo:', mailError);
     }
 
+    console.log(`[PASSWORD RESET LOG] Email to: ${cleanEmail} | Code: ${resetCode} | Sent: ${emailSent}`);
+
     if (emailSent) {
-      res.json({ message: 'Reset code sent successfully via email.' });
+      res.json({ message: 'Recovery code sent successfully to your email.' });
     } else {
-      // Fallback: print to console for development
-      console.log(`[DEVELOPMENT PASSWORD RESET LOG] Email to: ${email} | Code: ${resetCode}`);
-      res.json({ message: 'Reset code sent successfully (Development console).' });
+      res.json({ message: `Recovery code: ${resetCode} (Development fallback)` });
     }
   } catch (error) {
-    res.status(500).json({ message: 'Server error during forgot password.' });
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: error.message || 'Server error during forgot password.' });
   }
 });
 
@@ -377,7 +383,8 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
-    const resetRecords = await OtpVerification.find({ phone: `RESET_${email}` }).sort({ createdAt: -1 });
+    const cleanEmail = email.toLowerCase().trim();
+    const resetRecords = await OtpVerification.find({ phone: `RESET_${cleanEmail}` }).sort({ createdAt: -1 });
     if (resetRecords.length === 0) {
       return res.status(400).json({ message: 'Invalid or expired reset code.' });
     }
@@ -385,29 +392,30 @@ router.post('/reset-password', async (req, res) => {
     const latestReset = resetRecords[0];
 
     if (latestReset.expiresAt < new Date()) {
-      await OtpVerification.deleteMany({ phone: `RESET_${email}` });
+      await OtpVerification.deleteMany({ phone: `RESET_${cleanEmail}` });
       return res.status(400).json({ message: 'Reset code has expired.' });
     }
 
     const isMatch = await bcrypt.compare(code, latestReset.otp);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid reset code.' });
+      return res.status(400).json({ message: 'Invalid reset code. Please check the code in your email.' });
     }
 
     // Clean up
-    await OtpVerification.deleteMany({ phone: `RESET_${email}` });
+    await OtpVerification.deleteMany({ phone: `RESET_${cleanEmail}` });
 
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'User not found.' });
+    const user = await User.findOne({ email: cleanEmail });
+    if (!user) return res.status(404).json({ message: 'User account not found.' });
 
     // Update password
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(newPassword, salt);
     await user.save();
 
-    res.json({ message: 'Password has been reset successfully.' });
+    res.json({ message: 'Password has been reset successfully. Please log in with your new password.' });
   } catch (error) {
-    res.status(500).json({ message: 'Server error resetting password.' });
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: error.message || 'Server error resetting password.' });
   }
 });
 
