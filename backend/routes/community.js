@@ -249,10 +249,9 @@ const seedCommunityIfEmpty = async () => {
       console.log('Community Forum seed posts initialized successfully.');
     }
   } catch (err) {
-    console.error('Error seeding community messages:', err);
+    console.error('Error seeding community messages:', err.message);
   }
 };
 
-seedCommunityIfEmpty();
-
 module.exports = router;
+module.exports.seedCommunityIfEmpty = seedCommunityIfEmpty;

@@ -129,12 +129,13 @@ const seedProductsIfEmpty = async () => {
     await Product.insertMany(seedData);
     console.log('Agricultural Products Seeded Successfully.');
   } catch (err) {
-    console.error('Error seeding products:', err);
+    console.error('Error seeding products:', err.message);
   }
 };
 
-// Seed immediately on import
-seedProductsIfEmpty();
+// Export router and seed function
+module.exports = router;
+module.exports.seedProductsIfEmpty = seedProductsIfEmpty;
 
 // @route   GET api/products
 // @desc    Get all products, filterable by category
